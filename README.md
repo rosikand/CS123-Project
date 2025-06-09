@@ -1,4 +1,4 @@
-CS 123 Project - Visual Navigation with Pupper through LLM Path Planning 
+# CS 123 Project - Visual Navigation with Pupper through LLM Path Planning 
 
 
 ## Project description 
