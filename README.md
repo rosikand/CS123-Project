@@ -7,13 +7,13 @@ For our final project for our robotic dog class (where we build a robotic dog ca
 
 Once the path has been determined, the next challenge is getting Pupper to actually follow the intended path, in the real environment. Pupper locomotion is trained using an RL policy that was given to us. However, it struggles to walk completely straight sometimes. For example, if you give Pupper a sequence of “move(), move(), move()” commands, it will likely veer off path and the errors compound. We are still exploring solutions to solve this problem but the main one is to use April Tags. April Tags are barcode-like images that can be placed in the environment to localize the navigator. The idea is that we will place April tags at each point in the grid, in the real life environment. Then, as pupper moves along, we will use its fisheye camera to get it to the current April tag it needs to get to. We call this process “search()”. Suppose we have a sequence like:
 
-“
+```
 move()
 move()
 turn_left()
 move()
 move()
-“
+```
 
 And suppose pupper starts at (1,1) and needs to get to (3,3) using this path planning. For each step, pupper will run the search function which will translate the first move() command into searching for the April tag at (1,2). Then, we use object detection via the fisheye camera to locate this April tag. Once the desired April tag is located, we use the fisheye camera to help pupper move to the desired target. Once the target is reached, the next target tag is determined. This process repeats until the destination is reached. 
 
@@ -23,6 +23,7 @@ We have built a Python-based GUI for our Pupper dog that represents a 4×4 grid 
 
 Here is a visual image of the GUI: 
 
+<img width="645" alt="image" src="https://github.com/user-attachments/assets/746d4aae-dcf0-42fa-9b0b-70a7cfc5bb20" />
 
 
 
