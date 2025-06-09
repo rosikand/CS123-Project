@@ -1,0 +1,565 @@
+├── .gitignore
+├── lab_4.launch.py
+├── lab_4.py
+└── lab_4.yaml
+
+
+/.gitignore:
+--------------------------------------------------------------------------------
+1 | .DS_Store
+2 | __pycache__
+
+
+--------------------------------------------------------------------------------
+/lab_4.launch.py:
+--------------------------------------------------------------------------------
+  1 | # Copyright 2021 Stogl Robotics Consulting UG (haftungsbeschränkt)
+  2 | #
+  3 | # Licensed under the Apache License, Version 2.0 (the "License");
+  4 | # you may not use this file except in compliance with the License.
+  5 | # You may obtain a copy of the License at
+  6 | #
+  7 | #     http://www.apache.org/licenses/LICENSE-2.0
+  8 | #
+  9 | # Unless required by applicable law or agreed to in writing, software
+ 10 | # distributed under the License is distributed on an "AS IS" BASIS,
+ 11 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ 12 | # See the License for the specific language governing permissions and
+ 13 | # limitations under the License.
+ 14 | 
+ 15 | 
+ 16 | from launch import LaunchDescription
+ 17 | from launch.actions import RegisterEventHandler
+ 18 | from launch.event_handlers import OnProcessExit
+ 19 | from launch.substitutions import Command, FindExecutable, PathJoinSubstitution
+ 20 | 
+ 21 | from launch_ros.actions import Node
+ 22 | from launch_ros.substitutions import FindPackageShare
+ 23 | 
+ 24 | 
+ 25 | def generate_launch_description():
+ 26 |     # Get URDF via xacro
+ 27 |     robot_description_content = Command(
+ 28 |         [
+ 29 |             PathJoinSubstitution([FindExecutable(name="xacro")]),
+ 30 |             " ",
+ 31 |             PathJoinSubstitution(
+ 32 |                 [
+ 33 | #                    FindPackageShare("control_board_hardware_interface"),
+ 34 |                     # "/home/pi/ros2_ws/src/control_board_hardware_interface",
+ 35 |                     # "test",
+ 36 |                     # "test_state_publisher.urdf.xacro",
+ 37 |                     "/home/pi/ros2_ws/src/pupper_v3_description",
+ 38 |                     "description",
+ 39 |                     "pupper_v3.urdf.xacro",
+ 40 |                 ]
+ 41 |             ),
+ 42 |         ]
+ 43 |     )
+ 44 |     robot_description = {"robot_description": robot_description_content}
+ 45 | 
+ 46 |     robot_controllers = PathJoinSubstitution(
+ 47 |         [
+ 48 | #            FindPackageShare("control_board_hardware_interface"),
+ 49 |             "/home/pi/lab_4",
+ 50 |             "lab_4.yaml",
+ 51 |         ]
+ 52 |     )
+ 53 |     # rviz_config_file = PathJoinSubstitution(
+ 54 |     #     [FindPackageShare("ros2_control_demo_example_1"), "rviz", "rrbot.rviz"]
+ 55 |     # )
+ 56 | 
+ 57 |     control_node = Node(
+ 58 |         package="controller_manager",
+ 59 |         executable="ros2_control_node",
+ 60 |         parameters=[robot_description, robot_controllers],
+ 61 |         output="both",
+ 62 |     )
+ 63 |     robot_state_pub_node = Node(
+ 64 |         package="robot_state_publisher",
+ 65 |         executable="robot_state_publisher",
+ 66 |         output="both",
+ 67 |         parameters=[robot_description],
+ 68 |     )
+ 69 |     # rviz_node = Node(
+ 70 |     #     package="rviz2",
+ 71 |     #     executable="rviz2",
+ 72 |     #     name="rviz2",
+ 73 |     #     output="log",
+ 74 |     #     arguments=["-d", rviz_config_file],
+ 75 |     # )
+ 76 | #    joy_node = Node(
+ 77 | #        package="joy_linux",
+ 78 | #        executable="joy_linux_node",
+ 79 | #        output="both",
+ 80 | #    )
+ 81 | 
+ 82 |     joint_state_broadcaster_spawner = Node(
+ 83 |         package="controller_manager",
+ 84 |         executable="spawner",
+ 85 |         arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager", "--controller-manager-timeout", "30"],
+ 86 |     )
+ 87 | 
+ 88 |     imu_sensor_broadcaster_spawner = Node(
+ 89 |         package="controller_manager",
+ 90 |         executable="spawner",
+ 91 |         arguments=["imu_sensor_broadcaster", "--controller-manager", "/controller_manager", "--controller-manager-timeout", "30"],
+ 92 |     )
+ 93 | 
+ 94 |     robot_controller_spawner = Node(
+ 95 |         package="controller_manager",
+ 96 |         executable="spawner",
+ 97 |         arguments=["forward_command_controller", "--controller-manager", "/controller_manager", "--controller-manager-timeout", "30"],
+ 98 |     )
+ 99 | 
+100 |     # Delay rviz start after `joint_state_broadcaster`
+101 |     # delay_rviz_after_joint_state_broadcaster_spawner = RegisterEventHandler(
+102 |     #     event_handler=OnProcessExit(
+103 |     #         target_action=joint_state_broadcaster_spawner,
+104 |     #         on_exit=[rviz_node],
+105 |     #     )
+106 |     # )
+107 | 
+108 |     # delay_joint_state_broadcaster_spawner_after_control_node = RegisterEventHandler(
+109 |     #     event_handler=OnProcessExit(
+110 |     #         target_action=joint_state_broadcaster_spawner,
+111 |     #         on_exit=[control_node],
+112 |     #     )
+113 |     # )
+114 | 
+115 |     # Delay start of robot_controller after `joint_state_broadcaster`
+116 |     delay_robot_controller_spawner_after_joint_state_broadcaster_spawner = RegisterEventHandler(
+117 |         event_handler=OnProcessExit(
+118 |             target_action=joint_state_broadcaster_spawner,
+119 |             on_exit=[robot_controller_spawner],
+120 |         )
+121 |     )
+122 | 
+123 |     nodes = [
+124 |         control_node,
+125 |  #       joy_node,
+126 |         robot_state_pub_node,
+127 |         joint_state_broadcaster_spawner,
+128 |         imu_sensor_broadcaster_spawner,
+129 |         # delay_rviz_after_joint_state_broadcaster_spawner,
+130 |         delay_robot_controller_spawner_after_joint_state_broadcaster_spawner,
+131 |     ]
+132 | 
+133 |     return LaunchDescription(nodes)
+134 | 
+
+
+--------------------------------------------------------------------------------
+/lab_4.py:
+--------------------------------------------------------------------------------
+  1 | import rclpy
+  2 | from rclpy.node import Node
+  3 | from sensor_msgs.msg import JointState
+  4 | from std_msgs.msg import Float64MultiArray
+  5 | import numpy as np
+  6 | np.set_printoptions(precision=3, suppress=True)
+  7 | 
+  8 | def rotation_x(angle):
+  9 |     # rotation about the x-axis implemented for you
+ 10 |     return np.array([
+ 11 |         [1, 0, 0, 0],
+ 12 |         [0, np.cos(angle), -np.sin(angle), 0],
+ 13 |         [0, np.sin(angle), np.cos(angle), 0],
+ 14 |         [0, 0, 0, 1]
+ 15 |     ])
+ 16 | 
+ 17 | 
+ 18 | def rotation_y(angle):
+ 19 |    return np.array([
+ 20 |     [np.cos(angle), 0, np.sin(angle), 0],
+ 21 |     [0, 1, 0, 0],
+ 22 |     [-np.sin(angle), 0, np.cos(angle), 0], 
+ 23 |     [0, 0, 0, 1]
+ 24 |     ])
+ 25 | 
+ 26 | def rotation_z(angle):
+ 27 |     return np.array([
+ 28 |         [np.cos(angle), -np.sin(angle), 0, 0], 
+ 29 |         [np.sin(angle), np.cos(angle), 0, 0], 
+ 30 |         [0, 0, 1, 0], 
+ 31 |         [0, 0, 0, 1]
+ 32 |     ])
+ 33 | 
+ 34 | def translation(x, y, z):
+ 35 |     return np.array([
+ 36 |         [1, 0, 0, x],
+ 37 |         [0, 1, 0 ,y],
+ 38 |         [0, 0, 1, z],
+ 39 |         [0, 0, 0, 1]
+ 40 |     ])
+ 41 | 
+ 42 | 
+ 43 | class InverseKinematics(Node):
+ 44 | 
+ 45 |     def __init__(self):
+ 46 |         super().__init__('inverse_kinematics')
+ 47 |         self.joint_subscription = self.create_subscription(
+ 48 |             JointState,
+ 49 |             'joint_states',
+ 50 |             self.listener_callback,
+ 51 |             10)
+ 52 |         self.joint_subscription  # prevent unused variable warning
+ 53 | 
+ 54 |         self.command_publisher = self.create_publisher(
+ 55 |             Float64MultiArray,
+ 56 |             '/forward_command_controller/commands',
+ 57 |             10
+ 58 |         )
+ 59 | 
+ 60 |         self.joint_positions = None
+ 61 |         self.joint_velocities = None
+ 62 |         self.target_joint_positions = None
+ 63 |         self.counter = 0
+ 64 | 
+ 65 |         # Trotting gate positions, already implemented
+ 66 |         touch_down_position = np.array([0.07, 0.0, -0.14])
+ 67 |         stand_position_1 = np.array([0.03, 0.0, -0.14])
+ 68 |         stand_position_2 = np.array([0.0, 0.0, -0.14])
+ 69 |         stand_position_3 = np.array([-0.03, 0.0, -0.14])
+ 70 |         liftoff_position = np.array([-0.07, 0.0, -0.14])
+ 71 |         mid_swing_position = np.array([0.0, 0.0, -0.05])
+ 72 |         
+ 73 | ## trotting
+ 74 |         # TODO: Implement each leg’s trajectory in the trotting gait.
+ 75 |         rf_ee_offset = np.array([0.06, -0.09, 0])
+ 76 |         rf_ee_triangle_positions = np.array([
+ 77 |             ################################################################################################
+ 78 |             # TODO: Implement the trotting gait
+ 79 |             ################################################################################################
+ 80 |             touch_down_position,
+ 81 |             stand_position_1,
+ 82 |             stand_position_2,
+ 83 |             stand_position_3,
+ 84 |             liftoff_position,
+ 85 |             mid_swing_position,
+ 86 |         ]) + rf_ee_offset
+ 87 |         
+ 88 |         lf_ee_offset = np.array([0.06, 0.09, 0])
+ 89 |         lf_ee_triangle_positions = np.array([
+ 90 |             ################################################################################################
+ 91 |             # TODO: Implement the trotting gait
+ 92 |             ################################################################################################
+ 93 |             stand_position_3,
+ 94 |             liftoff_position,
+ 95 |             mid_swing_position,
+ 96 |             touch_down_position,
+ 97 |             stand_position_1,
+ 98 |             stand_position_2,
+ 99 |         ]) + lf_ee_offset
+100 |         
+101 |         rb_ee_offset = np.array([-0.11, -0.09, 0])
+102 |         rb_ee_triangle_positions = np.array([
+103 |             ################################################################################################
+104 |             # TODO: Implement the trotting gait
+105 |             ################################################################################################
+106 |             stand_position_3,
+107 |             liftoff_position,
+108 |             mid_swing_position,
+109 |             touch_down_position,
+110 |             stand_position_1,
+111 |             stand_position_2,
+112 |         ]) + rb_ee_offset
+113 |         
+114 |         lb_ee_offset = np.array([-0.11, 0.09, 0])
+115 |         lb_ee_triangle_positions = np.array([
+116 |             ################################################################################################
+117 |             # TODO: Implement the trotting gait
+118 |             ################################################################################################
+119 |             touch_down_position,
+120 |             stand_position_1,
+121 |             stand_position_2,
+122 |             stand_position_3,
+123 |             liftoff_position,
+124 |             mid_swing_position,
+125 |         ]) + lb_ee_offset
+126 | 
+127 | 
+128 | 
+129 |         self.ee_triangle_positions = [rf_ee_triangle_positions, lf_ee_triangle_positions, rb_ee_triangle_positions, lb_ee_triangle_positions]
+130 |         self.fk_functions = [self.fr_leg_fk, self.fl_leg_fk, self.br_leg_fk, self.bl_leg_fk]
+131 | 
+132 |         self.target_joint_positions_cache, self.target_ee_cache = self.cache_target_joint_positions()
+133 |         print(f'shape of target_joint_positions_cache: {self.target_joint_positions_cache.shape}')
+134 |         print(f'shape of target_ee_cache: {self.target_ee_cache.shape}')
+135 | 
+136 | 
+137 |         self.pd_timer_period = 1.0 / 200  # 200 Hz
+138 |         self.ik_timer_period = 1.0 / 100   # 100 Hz
+139 |         self.pd_timer = self.create_timer(self.pd_timer_period, self.pd_timer_callback)
+140 |         self.ik_timer = self.create_timer(self.ik_timer_period, self.ik_timer_callback)
+141 | 
+142 | 
+143 |     def fr_leg_fk(self, theta):
+144 |         # Already implemented in Lab 2
+145 |         T_RF_0_1 = translation(0.07500, -0.08350, 0) @ rotation_x(1.57080) @ rotation_z(theta[0])
+146 |         T_RF_1_2 = rotation_y(-1.57080) @ rotation_z(theta[1])
+147 |         T_RF_2_3 = translation(0, -0.04940, 0.06850) @ rotation_y(1.57080) @ rotation_z(theta[2])
+148 |         T_RF_3_ee = translation(0.06231, -0.06216, 0.01800)
+149 |         T_RF_0_ee = T_RF_0_1 @ T_RF_1_2 @ T_RF_2_3 @ T_RF_3_ee
+150 |         return T_RF_0_ee[:3, 3]
+151 | 
+152 |     def fl_leg_fk(self, theta):
+153 |         T_RF_0_1 = translation(0.07500, 0.08350, 0) @ rotation_x(1.57080) @ rotation_z(-theta[0])
+154 |         T_RF_1_2 = rotation_y(-1.57080) @ rotation_z(theta[1])
+155 |         T_RF_2_3 = translation(0, -0.04940, 0.06850) @ rotation_y(1.57080) @ rotation_z(-theta[2])
+156 |         T_RF_3_ee = translation(0.06231, -0.06216, -0.01800)
+157 |         T_RF_0_ee = T_RF_0_1 @ T_RF_1_2 @ T_RF_2_3 @ T_RF_3_ee
+158 |         return T_RF_0_ee[:3, 3]
+159 | 
+160 |     def br_leg_fk(self, theta):
+161 |         T_RF_0_1 = translation(-0.07500, -0.07250, 0) @ rotation_x(1.57080) @ rotation_z(theta[0])
+162 |         T_RF_1_2 = rotation_y(-1.57080) @ rotation_z(theta[1])
+163 |         T_RF_2_3 = translation(0, -0.04940, 0.06850) @ rotation_y(1.57080) @ rotation_z(theta[2])
+164 |         T_RF_3_ee = translation(0.06231, -0.06216, 0.01800)
+165 |         T_RF_0_ee = T_RF_0_1 @ T_RF_1_2 @ T_RF_2_3 @ T_RF_3_ee
+166 |         return T_RF_0_ee[:3, 3]
+167 | 
+168 |     def bl_leg_fk(self, theta):
+169 |         T_RF_0_1 = translation(-0.07500, 0.07250, 0) @ rotation_x(1.57080) @ rotation_z(-theta[0])
+170 |         T_RF_1_2 = rotation_y(-1.57080) @ rotation_z(theta[1])
+171 |         T_RF_2_3 = translation(0, -0.04940, 0.06850) @ rotation_y(1.57080) @ rotation_z(-theta[2])
+172 |         T_RF_3_ee = translation(0.06231, -0.06216, -0.01800)
+173 |         T_RF_0_ee = T_RF_0_1 @ T_RF_1_2 @ T_RF_2_3 @ T_RF_3_ee
+174 |         return T_RF_0_ee[:3, 3]
+175 | 
+176 |     def forward_kinematics(self, theta):
+177 |         """
+178 |         theta: (12,) shape numpy array
+179 |         theta[0, 1, 2]: FR motor 0, 1, 2
+180 |         theta[3]: FL motor 0, 1, 2
+181 |         """
+182 |         return np.concatenate([self.fk_functions[i](theta[3*i: 3*i+3]) for i in range(4)])
+183 | 
+184 |     def listener_callback(self, msg):
+185 |         joints_of_interest = [
+186 |             'leg_front_r_1', 'leg_front_r_2', 'leg_front_r_3', 
+187 |             'leg_front_l_1', 'leg_front_l_2', 'leg_front_l_3', 
+188 |             'leg_back_r_1', 'leg_back_r_2', 'leg_back_r_3', 
+189 |             'leg_back_l_1', 'leg_back_l_2', 'leg_back_l_3'
+190 |         ]
+191 |         self.joint_positions = np.array([msg.position[msg.name.index(joint)] for joint in joints_of_interest])
+192 |         self.joint_velocities = np.array([msg.velocity[msg.name.index(joint)] for joint in joints_of_interest])
+193 | 
+194 |     def inverse_kinematics_single_leg(self, target_ee, leg_index, initial_guess=[0, 0, 0]):
+195 |         leg_forward_kinematics = self.fk_functions[leg_index]
+196 | 
+197 |         def cost_function(theta):
+198 |             # Compute the cost function and the L1 norm of the error
+199 |             # return the cost and the L1 norm of the error
+200 |             ################################################################################################
+201 |             # TODO: Implement the cost function
+202 |             # HINT: You can use the * notation on a list to "unpack" a list
+203 |             ################################################################################################
+204 |             
+205 |             #get curr ee pos, calc the l1 distance, and then calc cost  
+206 |             curr_ee = leg_forward_kinematics(theta)
+207 | 
+208 |             error = curr_ee - target_ee
+209 | 
+210 |             l1dist = np.abs(error)
+211 |             cost = np.sum(error**2)
+212 |             
+213 |             return cost, l1dist
+214 |         
+215 |         def gradient(theta, epsilon=1e-3, n=3):
+216 |             # compute the gradient using finite diff 
+217 |             grad = np.zeros(n)
+218 |             for i in range(n):
+219 |                 theta_plus = theta.copy()
+220 |                 theta_plus[i] += epsilon
+221 |                 cost_plus, _ = cost_function(theta_plus)
+222 | 
+223 |                 theta_minus = theta.copy()
+224 |                 theta_minus[i] -= epsilon
+225 |                 cost_minus, _ = cost_function(theta_minus)
+226 | 
+227 |                 grad[i] = (cost_plus - cost_minus) / (2 * epsilon)
+228 |                     
+229 |             return grad
+230 |             
+231 | 
+232 |         theta = np.array(initial_guess)
+233 |         learning_rate = 10 # TODO: tune the learning rate
+234 |         max_iterations = 100 # TODO: Set the maximum number of iterations
+235 |         tolerance = 0.01 #TODO :Set the tolerance for the L1 norm of the error
+236 | 
+237 |         cost_l = []
+238 | 
+239 |         for _ in range(max_iterations):
+240 |             # Update the theta (parameters) using the gradient and the learning rate
+241 |             ################################################################################################
+242 |             # TODO: Implement the gradient update. Use the cost function you implemented, and use tolerance t
+243 |             # to determine if IK has converged
+244 |             # TODO (BONUS): Implement the (quasi-)Newton's method instead of finite differences for faster convergence
+245 |             ################################################################################################
+246 |             cost, l1 = cost_function(theta)
+247 |             cost_l.append(cost)
+248 | 
+249 |             if np.mean(l1) < tolerance: 
+250 |                 break
+251 |             
+252 |             grad = gradient(theta)
+253 |             # breakpoint()
+254 |             theta_val = grad * learning_rate
+255 |             theta = theta - theta_val
+256 | 
+257 |         print(f'Cost: {cost_l}') # Use to debug to see if you cost function converges within max_iterations
+258 | 
+259 |         return theta
+260 | 
+261 |     def interpolate_triangle(self, t, leg_index):
+262 |         # Intepolate between the three triangle positions in the self.ee_triangle_positions
+263 |         # based on the current time t
+264 |         ################################################################################################
+265 |         # TODO: Implement the interpolation function
+266 |         ################################################################################################
+267 |         
+268 |         """
+269 |         t: 0-1
+270 |         """
+271 | 
+272 |         t_mod = (t * 12) % 6 # 0-3
+273 | 
+274 |         vertices = self.ee_triangle_positions[leg_index]
+275 | 
+276 |         t_idx = int(t_mod)
+277 |         alpha = t_mod - t_idx
+278 | 
+279 |         interpolated = (1-alpha) * vertices[t_idx] + alpha * vertices[(t_idx + 1) % 6]
+280 | 
+281 |         return interpolated
+282 | 
+283 |     def cache_target_joint_positions(self):
+284 |         # Calculate and store the target joint positions for a cycle and all 4 legs
+285 |         target_joint_positions_cache = []
+286 |         target_ee_cache = []
+287 |         for leg_index in range(4):
+288 |             target_joint_positions_cache.append([])
+289 |             target_ee_cache.append([])
+290 |             target_joint_positions = [0] * 3
+291 |             for t in np.arange(0, 1, 0.02):
+292 |                 print(t)
+293 |                 target_ee = self.interpolate_triangle(t, leg_index)
+294 |                 target_joint_positions = self.inverse_kinematics_single_leg(target_ee, leg_index, initial_guess=target_joint_positions)
+295 | 
+296 |                 target_joint_positions_cache[leg_index].append(target_joint_positions)
+297 |                 target_ee_cache[leg_index].append(target_ee)
+298 | 
+299 |         # (4, 50, 3) -> (50, 12)
+300 |         target_joint_positions_cache = np.concatenate(target_joint_positions_cache, axis=1)
+301 |         target_ee_cache = np.concatenate(target_ee_cache, axis=1)
+302 |         print(target_ee_cache.shape)
+303 |         
+304 |         return target_joint_positions_cache, target_ee_cache
+305 | 
+306 |     def get_target_joint_positions(self):
+307 |         target_joint_positions = self.target_joint_positions_cache[self.counter]
+308 |         target_ee = self.target_ee_cache[self.counter]
+309 |         self.counter += 1
+310 |         if self.counter >= self.target_joint_positions_cache.shape[0]:
+311 |             self.counter = 0
+312 |         return target_ee, target_joint_positions
+313 | 
+314 |     def ik_timer_callback(self):
+315 |         if self.joint_positions is not None:
+316 |             target_ee, self.target_joint_positions = self.get_target_joint_positions()
+317 |             current_ee = self.forward_kinematics(self.joint_positions)
+318 | 
+319 |             self.get_logger().info(
+320 |                 f'Target EE: {target_ee}, \
+321 |                 Current EE: {current_ee}, \
+322 |                 Target Angles: {self.target_joint_positions}, \
+323 |                 Target Angles to EE: {self.forward_kinematics(self.target_joint_positions)}, \
+324 |                 Current Angles: {self.joint_positions}')
+325 | 
+326 |     def pd_timer_callback(self):
+327 |         if self.target_joint_positions is not None:
+328 |             command_msg = Float64MultiArray()
+329 |             command_msg.data = self.target_joint_positions.tolist()
+330 |             self.command_publisher.publish(command_msg)
+331 | 
+332 | def main():
+333 |     rclpy.init()
+334 |     inverse_kinematics = InverseKinematics()
+335 |     
+336 |     try:
+337 |         rclpy.spin(inverse_kinematics)
+338 |     except KeyboardInterrupt:
+339 |         print("Program terminated by user")
+340 |     finally:
+341 |         # Send zero torques
+342 |         zero_torques = Float64MultiArray()
+343 |         zero_torques.data = [0.0] * 12
+344 |         inverse_kinematics.command_publisher.publish(zero_torques)
+345 |         
+346 |         inverse_kinematics.destroy_node()
+347 |         rclpy.shutdown()
+348 | 
+349 | if __name__ == '__main__':
+350 |     main()
+351 | 
+
+
+--------------------------------------------------------------------------------
+/lab_4.yaml:
+--------------------------------------------------------------------------------
+ 1 | controller_manager:
+ 2 |   ros__parameters:
+ 3 |     update_rate: 1000 #  Hz
+ 4 | 
+ 5 |     forward_command_controller:
+ 6 |       type: forward_command_controller/ForwardCommandController
+ 7 | 
+ 8 |     joint_state_broadcaster:
+ 9 |       type: joint_state_broadcaster/JointStateBroadcaster
+10 |     
+11 |     imu_sensor_broadcaster:
+12 |       type: imu_sensor_broadcaster/IMUSensorBroadcaster
+13 | 
+14 | forward_command_controller:
+15 |   ros__parameters:
+16 |     joints:
+17 |       - leg_front_r_1
+18 |       - leg_front_r_2
+19 |       - leg_front_r_3
+20 |       - leg_front_l_1
+21 |       - leg_front_l_2
+22 |       - leg_front_l_3
+23 |       - leg_back_r_1
+24 |       - leg_back_r_2
+25 |       - leg_back_r_3
+26 |       - leg_back_l_1
+27 |       - leg_back_l_2
+28 |       - leg_back_l_3
+29 |     interface_name: position
+30 | 
+31 | joint_state_broadcaster:
+32 |   ros__parameters:
+33 |     joints:
+34 |       - leg_front_r_1
+35 |       - leg_front_r_2
+36 |       - leg_front_r_3
+37 |       - leg_front_l_1
+38 |       - leg_front_l_2
+39 |       - leg_front_l_3
+40 |       - leg_back_r_1
+41 |       - leg_back_r_2
+42 |       - leg_back_r_3
+43 |       - leg_back_l_1
+44 |       - leg_back_l_2
+45 |       - leg_back_l_3
+46 |     interface_name: position
+47 | 
+48 | imu_sensor_broadcaster:
+49 |   ros__parameters:
+50 |     frame_id: base_link
+51 |     sensor_name: imu_sensor
+52 | 
+
+
+--------------------------------------------------------------------------------

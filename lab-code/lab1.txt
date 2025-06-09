@@ -1,0 +1,989 @@
+├── .gitignore
+├── __pycache__
+    └── lab_1.launch.cpython-312.pyc
+├── lab_1.launch.py
+├── lab_1.py
+├── lab_1.yaml
+└── responses
+    ├── joint-states.txt
+    ├── startupoutput.txt
+    └── topic-list.txt
+
+
+/.gitignore:
+--------------------------------------------------------------------------------
+1 | .DS_Store
+
+
+--------------------------------------------------------------------------------
+/__pycache__/lab_1.launch.cpython-312.pyc:
+--------------------------------------------------------------------------------
+https://raw.githubusercontent.com/TaylorT52/CS123-Group3/lab1/__pycache__/lab_1.launch.cpython-312.pyc
+
+
+--------------------------------------------------------------------------------
+/lab_1.launch.py:
+--------------------------------------------------------------------------------
+  1 | # Copyright 2021 Stogl Robotics Consulting UG (haftungsbeschränkt)
+  2 | #
+  3 | # Licensed under the Apache License, Version 2.0 (the "License");
+  4 | # you may not use this file except in compliance with the License.
+  5 | # You may obtain a copy of the License at
+  6 | #
+  7 | #     http://www.apache.org/licenses/LICENSE-2.0
+  8 | #
+  9 | # Unless required by applicable law or agreed to in writing, software
+ 10 | # distributed under the License is distributed on an "AS IS" BASIS,
+ 11 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ 12 | # See the License for the specific language governing permissions and
+ 13 | # limitations under the License.
+ 14 | 
+ 15 | 
+ 16 | from launch import LaunchDescription
+ 17 | from launch.actions import RegisterEventHandler
+ 18 | from launch.event_handlers import OnProcessExit
+ 19 | from launch.substitutions import Command, FindExecutable, PathJoinSubstitution
+ 20 | 
+ 21 | from launch_ros.actions import Node
+ 22 | from launch_ros.substitutions import FindPackageShare
+ 23 | 
+ 24 | 
+ 25 | def generate_launch_description():
+ 26 |     # Get URDF via xacro
+ 27 |     robot_description_content = Command(
+ 28 |         [
+ 29 |             PathJoinSubstitution([FindExecutable(name="xacro")]),
+ 30 |             " ",
+ 31 |             PathJoinSubstitution(
+ 32 |                 [
+ 33 | #                    FindPackageShare("control_board_hardware_interface"),
+ 34 |                     # "/home/pi/ros2_ws/src/control_board_hardware_interface",
+ 35 |                     # "test",
+ 36 |                     # "test_state_publisher.urdf.xacro",
+ 37 |                     "/home/pi/ros2_ws/src/pupper_v3_description",
+ 38 |                     "description",
+ 39 |                     "pupper_v3.urdf.xacro",
+ 40 |                 ]
+ 41 |             ),
+ 42 |         ]
+ 43 |     )
+ 44 |     robot_description = {"robot_description": robot_description_content}
+ 45 | 
+ 46 |     robot_controllers = PathJoinSubstitution(
+ 47 |         [
+ 48 | #            FindPackageShare("control_board_hardware_interface"),
+ 49 |             "/home/pi/lab_1",
+ 50 |             "lab_1.yaml",
+ 51 |         ]
+ 52 |     )
+ 53 |     # rviz_config_file = PathJoinSubstitution(
+ 54 |     #     [FindPackageShare("ros2_control_demo_example_1"), "rviz", "rrbot.rviz"]
+ 55 |     # )
+ 56 | 
+ 57 |     control_node = Node(
+ 58 |         package="controller_manager",
+ 59 |         executable="ros2_control_node",
+ 60 |         parameters=[robot_description, robot_controllers],
+ 61 |         output="both",
+ 62 |     )
+ 63 |     robot_state_pub_node = Node(
+ 64 |         package="robot_state_publisher",
+ 65 |         executable="robot_state_publisher",
+ 66 |         output="both",
+ 67 |         parameters=[robot_description],
+ 68 |     )
+ 69 |     # rviz_node = Node(
+ 70 |     #     package="rviz2",
+ 71 |     #     executable="rviz2",
+ 72 |     #     name="rviz2",
+ 73 |     #     output="log",
+ 74 |     #     arguments=["-d", rviz_config_file],
+ 75 |     # )
+ 76 | #    joy_node = Node(
+ 77 | #        package="joy_linux",
+ 78 | #        executable="joy_linux_node",
+ 79 | #        output="both",
+ 80 | #    )
+ 81 | 
+ 82 |     joint_state_broadcaster_spawner = Node(
+ 83 |         package="controller_manager",
+ 84 |         executable="spawner",
+ 85 |         arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager", "--controller-manager-timeout", "30"],
+ 86 |     )
+ 87 | 
+ 88 |     imu_sensor_broadcaster_spawner = Node(
+ 89 |         package="controller_manager",
+ 90 |         executable="spawner",
+ 91 |         arguments=["imu_sensor_broadcaster", "--controller-manager", "/controller_manager", "--controller-manager-timeout", "30"],
+ 92 |     )
+ 93 | 
+ 94 |     robot_controller_spawner = Node(
+ 95 |         package="controller_manager",
+ 96 |         executable="spawner",
+ 97 |         arguments=["forward_command_controller", "--controller-manager", "/controller_manager", "--controller-manager-timeout", "30"],
+ 98 |     )
+ 99 | 
+100 |     # Delay rviz start after `joint_state_broadcaster`
+101 |     # delay_rviz_after_joint_state_broadcaster_spawner = RegisterEventHandler(
+102 |     #     event_handler=OnProcessExit(
+103 |     #         target_action=joint_state_broadcaster_spawner,
+104 |     #         on_exit=[rviz_node],
+105 |     #     )
+106 |     # )
+107 | 
+108 |     # delay_joint_state_broadcaster_spawner_after_control_node = RegisterEventHandler(
+109 |     #     event_handler=OnProcessExit(
+110 |     #         target_action=joint_state_broadcaster_spawner,
+111 |     #         on_exit=[control_node],
+112 |     #     )
+113 |     # )
+114 | 
+115 |     # Delay start of robot_controller after `joint_state_broadcaster`
+116 |     delay_robot_controller_spawner_after_joint_state_broadcaster_spawner = RegisterEventHandler(
+117 |         event_handler=OnProcessExit(
+118 |             target_action=joint_state_broadcaster_spawner,
+119 |             on_exit=[robot_controller_spawner],
+120 |         )
+121 |     )
+122 | 
+123 |     nodes = [
+124 |         control_node,
+125 |  #       joy_node,
+126 |         robot_state_pub_node,
+127 |         joint_state_broadcaster_spawner,
+128 |         imu_sensor_broadcaster_spawner,
+129 |         # delay_rviz_after_joint_state_broadcaster_spawner,
+130 |         delay_robot_controller_spawner_after_joint_state_broadcaster_spawner,
+131 |     ]
+132 | 
+133 |     return LaunchDescription(nodes)
+134 | 
+
+
+--------------------------------------------------------------------------------
+/lab_1.py:
+--------------------------------------------------------------------------------
+  1 | import rclpy
+  2 | from rclpy.node import Node
+  3 | from sensor_msgs.msg import JointState
+  4 | from std_msgs.msg import Float64MultiArray
+  5 | import numpy as np
+  6 | import time
+  7 | import math
+  8 | from collections import deque
+  9 | 
+ 10 | JOINT_NAME = 'leg_front_r_1'
+ 11 | ####
+ 12 | ####
+ 13 | KP = 3 # YOUR KP VALUE 0.2 works for P control
+ 14 | KD = 0.1 # KD VALUE
+ 15 | ####
+ 16 | ####
+ 17 | LOOP_RATE = 200  # Hz
+ 18 | MAX_TORQUE = 3.0
+ 19 | DELAY_SECONDS = 0.01
+ 20 | FREQUENCY = 2
+ 21 | 
+ 22 | 
+ 23 | class JointStateSubscriber(Node):
+ 24 | #test
+ 25 |     def __init__(self):
+ 26 |         super().__init__('joint_state_subscriber')
+ 27 |         # Create a subscriber to the /joint_states topic
+ 28 |         self.subscription = self.create_subscription(
+ 29 |             JointState,
+ 30 |             '/joint_states',
+ 31 |             self.get_joint_info,
+ 32 |             10  # QoS profile history depth
+ 33 |         )
+ 34 |         self.subscription  # prevent unused variable warning
+ 35 | 
+ 36 |         # Publisher to the /forward_command_controller/commands topic
+ 37 |         self.command_publisher = self.create_publisher(
+ 38 |             Float64MultiArray,
+ 39 |             '/forward_command_controller/commands',
+ 40 |             10
+ 41 |         )
+ 42 |         self.print_counter = 0
+ 43 |         self.pd_torque = 0
+ 44 |         self.joint_pos = 0
+ 45 |         self.joint_vel = 0
+ 46 |         self.target_joint_pos = 0
+ 47 |         self.target_joint_vel = 0
+ 48 | 
+ 49 |         self.delay_buffer_size = int(DELAY_SECONDS * LOOP_RATE)
+ 50 |         self.angle_buffer = deque(maxlen=self.delay_buffer_size)
+ 51 |         self.velocity_buffer = deque(maxlen=self.delay_buffer_size)
+ 52 | 
+ 53 |         # self.torque_history = deque(maxlen=DELAY)
+ 54 | 
+ 55 |         # Create a timer to run pd_loop at the specified frequency
+ 56 |         self.create_timer(1.0 / LOOP_RATE, self.pd_loop)
+ 57 | 
+ 58 |     def get_target_joint_info(self):
+ 59 |         ####
+ 60 |         #### YOUR CODE HERE
+ 61 |         ####
+ 62 | 
+ 63 |         target_joint_pos = 0.0
+ 64 |         target_joint_vel = 0.0
+ 65 |         return target_joint_pos, target_joint_vel
+ 66 | 
+ 67 |     def calculate_pd_torque(self, joint_pos, joint_vel, target_joint_pos, target_joint_vel):
+ 68 | 
+ 69 |         self.angle_buffer.append(joint_pos)
+ 70 |         self.velocity_buffer.append(joint_vel)
+ 71 |         joint_pos = self.angle_buffer[0]
+ 72 |         joint_vel = self.velocity_buffer[0]
+ 73 | 
+ 74 |         current_time = time.time()
+ 75 |         target_joint_pos = math.sin(2 * math.pi * FREQUENCY * current_time)
+ 76 | 
+ 77 |         position_error = target_joint_pos - joint_pos
+ 78 |         velocity_error = target_joint_vel - joint_vel
+ 79 |         
+ 80 |         # Calculate torque using both P and D terms
+ 81 |         torque = KP * position_error + KD * velocity_error
+ 82 |         
+ 83 |         return torque
+ 84 | 
+ 85 |     def print_info(self):
+ 86 |         if self.print_counter == 0:
+ 87 |             print(f"Pos: {self.joint_pos:.2f}, Target Pos: {self.target_joint_pos:.2f}, Vel: {self.joint_vel:.2f}, Target Vel: {self.target_joint_vel:.2f}, Tor: {self.pd_torque:.2f}")
+ 88 |         self.print_counter += 1
+ 89 |         self.print_counter %= 50
+ 90 | 
+ 91 |     def get_joint_info(self, msg):
+ 92 |         joint_index = msg.name.index(JOINT_NAME)
+ 93 |         joint_pos = msg.position[joint_index]
+ 94 |         joint_vel = msg.velocity[joint_index]
+ 95 | 
+ 96 |         self.joint_pos = joint_pos
+ 97 |         self.joint_vel = joint_vel
+ 98 |     
+ 99 |         return joint_pos, joint_vel
+100 | 
+101 |     def pd_loop(self):
+102 |         self.target_joint_pos, self.target_joint_vel = self.get_target_joint_info()
+103 |         self.pd_torque = self.calculate_pd_torque(self.joint_pos, self.joint_vel, self.target_joint_pos, self.target_joint_vel)
+104 |         self.print_info()
+105 |         self.publish_torque(self.pd_torque)
+106 | 
+107 |     def publish_torque(self, torque=0.0):
+108 |         # Create a Float64MultiArray message with zero kp and kd values
+109 |         command_msg = Float64MultiArray()
+110 |         torque = np.clip(torque, -MAX_TORQUE, MAX_TORQUE)
+111 |         command_msg.data = [torque, 0.0, 0.0]  # Zero kp and kd values
+112 | 
+113 |         # Publish the message
+114 |         self.command_publisher.publish(command_msg)
+115 | 
+116 | def main(args=None):
+117 |     rclpy.init(args=args)
+118 | 
+119 |     # Create the node
+120 |     joint_state_subscriber = JointStateSubscriber()
+121 | 
+122 |     # Keep the node running until interrupted
+123 |     try:
+124 |         rclpy.spin(joint_state_subscriber)
+125 |     except KeyboardInterrupt:
+126 |         print("Ctrl-C detected")
+127 |         joint_state_subscriber.publish_torque(0.0)
+128 | #    finally:
+129 | #        joint_state_subscriber.publish_torque(0.0)
+130 | 
+131 |     # Clean up and shutdown
+132 |     joint_state_subscriber.destroy_node()
+133 |     rclpy.shutdown()
+134 | 
+135 | if __name__ == '__main__':
+136 |     main()
+137 | 
+138 | 
+
+
+--------------------------------------------------------------------------------
+/lab_1.yaml:
+--------------------------------------------------------------------------------
+ 1 | controller_manager:
+ 2 |   ros__parameters:
+ 3 |     update_rate: 1000 #  Hz
+ 4 | 
+ 5 |     forward_command_controller:
+ 6 |       type: forward_command_controller/MultiInterfaceForwardCommandController
+ 7 | 
+ 8 |     joint_state_broadcaster:
+ 9 |       type: joint_state_broadcaster/JointStateBroadcaster
+10 |     
+11 |     imu_sensor_broadcaster:
+12 |       type: imu_sensor_broadcaster/IMUSensorBroadcaster
+13 | 
+14 | forward_command_controller:
+15 |   ros__parameters:
+16 |     joint: 'leg_front_r_1'
+17 |     interface_names: ['effort', 'kp', 'kd']
+18 | 
+19 | joint_state_broadcaster:
+20 |   ros__parameters:
+21 |     joints:
+22 |       - leg_front_r_1
+23 |       - leg_front_r_2
+24 |       - leg_front_r_3
+25 |       - leg_front_l_1
+26 |       - leg_front_l_2
+27 |       - leg_front_l_3
+28 |       - leg_back_r_1
+29 |       - leg_back_r_2
+30 |       - leg_back_r_3
+31 |       - leg_back_l_1
+32 |       - leg_back_l_2
+33 |       - leg_back_l_3
+34 |     interface_name: position
+35 | 
+36 | imu_sensor_broadcaster:
+37 |   ros__parameters:
+38 |     frame_id: base_link
+39 |     sensor_name: imu_sensor
+40 | 
+
+
+--------------------------------------------------------------------------------
+/responses/joint-states.txt:
+--------------------------------------------------------------------------------
+  1 | ---
+  2 | header:
+  3 |   stamp:
+  4 |     sec: 1743631734
+  5 |     nanosec: 183349551
+  6 |   frame_id: ''
+  7 | name:
+  8 | - leg_front_r_2
+  9 | - leg_front_l_1
+ 10 | - leg_front_l_2
+ 11 | - leg_front_r_1
+ 12 | - leg_front_l_3
+ 13 | - leg_front_r_3
+ 14 | - leg_back_r_1
+ 15 | - leg_back_r_3
+ 16 | - leg_back_l_1
+ 17 | - leg_back_r_2
+ 18 | - leg_back_l_2
+ 19 | - leg_back_l_3
+ 20 | position:
+ 21 | - -0.42
+ 22 | - 13.7169482421875
+ 23 | - 0.42
+ 24 | - -13.681470603942872
+ 25 | - -0.71
+ 26 | - 0.71
+ 27 | - -1.22
+ 28 | - 0.71
+ 29 | - 1.22
+ 30 | - -0.42
+ 31 | - 0.42
+ 32 | - -0.71
+ 33 | velocity:
+ 34 | - -0.0
+ 35 | - -0.0
+ 36 | - -0.0
+ 37 | - -0.0
+ 38 | - -0.0
+ 39 | - -0.0
+ 40 | - -0.0
+ 41 | - -0.0
+ 42 | - -0.0
+ 43 | - -0.0
+ 44 | - -0.0
+ 45 | - -0.0
+ 46 | effort:
+ 47 | - 2.31
+ 48 | - -75.44321533203126
+ 49 | - -2.31
+ 50 | - 75.2480883216858
+ 51 | - 0.0
+ 52 | - 0.0
+ 53 | - 6.71
+ 54 | - 0.0
+ 55 | - -6.71
+ 56 | - 2.31
+ 57 | - -2.31
+ 58 | - 0.0
+ 59 | ---
+ 60 | header:
+ 61 |   stamp:
+ 62 |     sec: 1743631734
+ 63 |     nanosec: 631349005
+ 64 |   frame_id: ''
+ 65 | name:
+ 66 | - leg_front_r_2
+ 67 | - leg_front_l_1
+ 68 | - leg_front_l_2
+ 69 | - leg_front_r_1
+ 70 | - leg_front_l_3
+ 71 | - leg_front_r_3
+ 72 | - leg_back_r_1
+ 73 | - leg_back_r_3
+ 74 | - leg_back_l_1
+ 75 | - leg_back_r_2
+ 76 | - leg_back_l_2
+ 77 | - leg_back_l_3
+ 78 | position:
+ 79 | - -0.42
+ 80 | - 13.7169482421875
+ 81 | - 0.42
+ 82 | - -13.681470603942872
+ 83 | - -0.71
+ 84 | - 0.71
+ 85 | - -1.22
+ 86 | - 0.71
+ 87 | - 1.22
+ 88 | - -0.42
+ 89 | - 0.42
+ 90 | - -0.71
+ 91 | velocity:
+ 92 | - -0.0
+ 93 | - -0.0
+ 94 | - -0.0
+ 95 | - -0.0
+ 96 | - -0.0
+ 97 | - -0.0
+ 98 | - -0.0
+ 99 | - -0.0
+100 | - -0.0
+101 | - -0.0
+102 | - -0.0
+103 | - -0.0
+104 | effort:
+105 | - 2.31
+106 | - -75.44321533203126
+107 | - -2.31
+108 | - 75.2480883216858
+109 | - 0.0
+110 | - 0.0
+111 | - 6.71
+112 | - 0.0
+113 | - -6.71
+114 | - 2.31
+115 | - -2.31
+116 | - 0.0
+117 | ---
+118 | header:
+119 |   stamp:
+120 |     sec: 1743631735
+121 |     nanosec: 79354181
+122 |   frame_id: ''
+123 | name:
+124 | - leg_front_r_2
+125 | - leg_front_l_1
+126 | - leg_front_l_2
+127 | - leg_front_r_1
+128 | - leg_front_l_3
+129 | - leg_front_r_3
+130 | - leg_back_r_1
+131 | - leg_back_r_3
+132 | - leg_back_l_1
+133 | - leg_back_r_2
+134 | - leg_back_l_2
+135 | - leg_back_l_3
+136 | position:
+137 | - -0.42
+138 | - 13.7169482421875
+139 | - 0.42
+140 | - -13.681470603942872
+141 | - -0.71
+142 | - 0.71
+143 | - -1.22
+144 | - 0.71
+145 | - 1.22
+146 | - -0.42
+147 | - 0.42
+148 | - -0.71
+149 | velocity:
+150 | - -0.0
+151 | - -0.0
+152 | - -0.0
+153 | - -0.0
+154 | - -0.0
+155 | - -0.0
+156 | - -0.0
+157 | - -0.0
+158 | - -0.0
+159 | - -0.0
+160 | - -0.0
+161 | - -0.0
+162 | effort:
+163 | - 2.31
+164 | - -75.44321533203126
+165 | - -2.31
+166 | - 75.2480883216858
+167 | - 0.0
+168 | - 0.0
+169 | - 6.71
+170 | - 0.0
+171 | - -6.71
+172 | - 2.31
+173 | - -2.31
+174 | - 0.0
+175 | ---
+176 | header:
+177 |   stamp:
+178 |     sec: 1743631735
+179 |     nanosec: 527353654
+180 |   frame_id: ''
+181 | name:
+182 | - leg_front_r_2
+183 | - leg_front_l_1
+184 | - leg_front_l_2
+185 | - leg_front_r_1
+186 | - leg_front_l_3
+187 | - leg_front_r_3
+188 | - leg_back_r_1
+189 | - leg_back_r_3
+190 | - leg_back_l_1
+191 | - leg_back_r_2
+192 | - leg_back_l_2
+193 | - leg_back_l_3
+194 | position:
+195 | - -0.42
+196 | - 13.7169482421875
+197 | - 0.42
+198 | - -13.681470603942872
+199 | - -0.71
+200 | - 0.71
+201 | - -1.22
+202 | - 0.71
+203 | - 1.22
+204 | - -0.42
+205 | - 0.42
+206 | - -0.71
+207 | velocity:
+208 | - -0.0
+209 | - -0.0
+210 | - -0.0
+211 | - -0.0
+212 | - -0.0
+213 | - -0.0
+214 | - -0.0
+215 | - -0.0
+216 | - -0.0
+217 | - -0.0
+218 | - -0.0
+219 | - -0.0
+220 | effort:
+221 | - 2.31
+222 | - -75.44321533203126
+223 | - -2.31
+224 | - 75.2480883216858
+225 | - 0.0
+226 | - 0.0
+227 | - 6.71
+228 | - 0.0
+229 | - -6.71
+230 | - 2.31
+231 | - -2.31
+232 | - 0.0
+233 | ---
+234 | header:
+235 |   stamp:
+236 |     sec: 1743631735
+237 |     nanosec: 975351182
+238 |   frame_id: ''
+239 | name:
+240 | - leg_front_r_2
+241 | - leg_front_l_1
+242 | - leg_front_l_2
+243 | - leg_front_r_1
+244 | - leg_front_l_3
+245 | - leg_front_r_3
+246 | - leg_back_r_1
+247 | - leg_back_r_3
+248 | - leg_back_l_1
+249 | - leg_back_r_2
+250 | - leg_back_l_2
+251 | - leg_back_l_3
+252 | position:
+253 | - -0.42
+254 | - 13.7169482421875
+255 | - 0.42
+256 | - -13.681470603942872
+257 | - -0.71
+258 | - 0.71
+259 | - -1.22
+260 | - 0.71
+261 | - 1.22
+262 | - -0.42
+263 | - 0.42
+264 | - -0.71
+265 | velocity:
+266 | - -0.0
+267 | - -0.0
+268 | - -0.0
+269 | - -0.0
+270 | - -0.0
+271 | - -0.0
+272 | - -0.0
+273 | - -0.0
+274 | - -0.0
+275 | - -0.0
+276 | - -0.0
+277 | - -0.0
+278 | effort:
+279 | - 2.31
+280 | - -75.44321533203126
+281 | - -2.31
+282 | - 75.2480883216858
+283 | - 0.0
+284 | - 0.0
+285 | - 6.71
+286 | - 0.0
+287 | - -6.71
+288 | - 2.31
+289 | - -2.31
+290 | - 0.0
+291 | ---
+292 | header:
+293 |   stamp:
+294 |     sec: 1743631736
+295 |     nanosec: 423348062
+296 |   frame_id: ''
+297 | name:
+298 | - leg_front_r_2
+299 | - leg_front_l_1
+300 | - leg_front_l_2
+301 | - leg_front_r_1
+302 | - leg_front_l_3
+303 | - leg_front_r_3
+304 | - leg_back_r_1
+305 | - leg_back_r_3
+306 | - leg_back_l_1
+307 | - leg_back_r_2
+308 | - leg_back_l_2
+309 | - leg_back_l_3
+310 | position:
+311 | - -0.42
+312 | - 13.7169482421875
+313 | - 0.42
+314 | - -13.681470603942872
+315 | - -0.71
+316 | - 0.71
+317 | - -1.22
+318 | - 0.71
+319 | - 1.22
+320 | - -0.42
+321 | - 0.42
+322 | - -0.71
+323 | velocity:
+324 | - -0.0
+325 | - -0.0
+326 | - -0.0
+327 | - -0.0
+328 | - -0.0
+329 | - -0.0
+330 | - -0.0
+331 | - -0.0
+332 | - -0.0
+333 | - -0.0
+334 | - -0.0
+335 | - -0.0
+336 | effort:
+337 | - 2.31
+338 | - -75.44321533203126
+339 | - -2.31
+340 | - 75.2480883216858
+341 | - 0.0
+342 | - 0.0
+343 | - 6.71
+344 | - 0.0
+345 | - -6.71
+346 | - 2.31
+347 | - -2.31
+348 | - 0.0
+349 | ---
+350 | header:
+351 |   stamp:
+352 |     sec: 1743631736
+353 |     nanosec: 871353090
+354 |   frame_id: ''
+355 | name:
+356 | - leg_front_r_2
+357 | - leg_front_l_1
+358 | - leg_front_l_2
+359 | - leg_front_r_1
+360 | - leg_front_l_3
+361 | - leg_front_r_3
+362 | - leg_back_r_1
+363 | - leg_back_r_3
+364 | - leg_back_l_1
+365 | - leg_back_r_2
+366 | - leg_back_l_2
+367 | - leg_back_l_3
+368 | position:
+369 | - -0.42
+370 | - 13.7169482421875
+371 | - 0.42
+372 | - -13.681470603942872
+373 | - -0.71
+374 | - 0.71
+375 | - -1.22
+376 | - 0.71
+377 | - 1.22
+378 | - -0.42
+379 | - 0.42
+380 | - -0.71
+381 | velocity:
+382 | - -0.0
+383 | - -0.0
+384 | - -0.0
+385 | - -0.0
+386 | - -0.0
+387 | - -0.0
+388 | - -0.0
+389 | - -0.0
+390 | - -0.0
+391 | - -0.0
+392 | - -0.0
+393 | - -0.0
+394 | effort:
+395 | - 2.31
+396 | - -75.44321533203126
+397 | - -2.31
+398 | - 75.2480883216858
+399 | - 0.0
+400 | - 0.0
+401 | - 6.71
+402 | - 0.0
+403 | - -6.71
+404 | - 2.31
+405 | - -2.31
+406 | - 0.0
+407 | ---
+408 | header:
+409 |   stamp:
+410 |     sec: 1743631737
+411 |     nanosec: 319349118
+412 |   frame_id: ''
+413 | name:
+414 | - leg_front_r_2
+415 | - leg_front_l_1
+416 | - leg_front_l_2
+417 | - leg_front_r_1
+418 | - leg_front_l_3
+419 | - leg_front_r_3
+420 | - leg_back_r_1
+421 | - leg_back_r_3
+422 | - leg_back_l_1
+423 | - leg_back_r_2
+424 | - leg_back_l_2
+425 | - leg_back_l_3
+426 | position:
+427 | - -0.42
+428 | - 13.7169482421875
+429 | - 0.42
+430 | - -13.681470603942872
+431 | - -0.71
+432 | - 0.71
+433 | - -1.22
+434 | - 0.71
+435 | - 1.22
+436 | - -0.42
+437 | - 0.42
+438 | - -0.71
+439 | velocity:
+440 | - -0.0
+441 | - -0.0
+442 | - -0.0
+443 | - -0.0
+444 | - -0.0
+445 | - -0.0
+446 | - -0.0
+447 | - -0.0
+448 | - -0.0
+449 | - -0.0
+450 | - -0.0
+451 | - -0.0
+452 | effort:
+453 | - 2.31
+454 | - -75.44321533203126
+455 | - -2.31
+456 | - 75.2480883216858
+457 | - 0.0
+458 | - 0.0
+459 | - 6.71
+460 | - 0.0
+461 | - -6.71
+462 | - 2.31
+463 | - -2.31
+464 | - 0.0
+465 | ---
+466 | header:
+467 |   stamp:
+468 |     sec: 1743631737
+469 |     nanosec: 767332443
+470 |   frame_id: ''
+471 | name:
+472 | - leg_front_r_2
+473 | - leg_front_l_1
+474 | - leg_front_l_2
+475 | - leg_front_r_1
+476 | - leg_front_l_3
+477 | - leg_front_r_3
+478 | - leg_back_r_1
+479 | - leg_back_r_3
+480 | - leg_back_l_1
+481 | - leg_back_r_2
+482 | - leg_back_l_2
+483 | - leg_back_l_3
+484 | position:
+485 | - -0.42
+486 | - 13.7169482421875
+487 | - 0.42
+488 | - -13.681470603942872
+489 | - -0.71
+490 | - 0.71
+491 | - -1.22
+492 | - 0.71
+493 | - 1.22
+494 | - -0.42
+495 | - 0.42
+496 | - -0.71
+497 | velocity:
+498 | - -0.0
+499 | - -0.0
+500 | - -0.0
+501 | - -0.0
+502 | - -0.0
+503 | - -0.0
+504 | - -0.0
+505 | - -0.0
+506 | - -0.0
+507 | - -0.0
+508 | - -0.0
+509 | - -0.0
+510 | effort:
+511 | - 2.31
+512 | - -75.44321533203126
+513 | - -2.31
+514 | - 75.2480883216858
+515 | - 0.0
+516 | - 0.0
+517 | - 6.71
+518 | - 0.0
+519 | - -6.71
+520 | - 2.31
+521 | - -2.31
+522 | - 0.0
+523 | ---
+524 | 
+525 | 
+
+
+--------------------------------------------------------------------------------
+/responses/startupoutput.txt:
+--------------------------------------------------------------------------------
+ 1 | pi@pupper:~/lab_1$ ros2 launch lab_1.launch.py
+ 2 | [INFO] [launch]: All log files can be found below /home/pi/.ros/log/2025-04-02-21-56-49-400263-pupper-6519
+ 3 | [INFO] [launch]: Default logging verbosity is set to INFO
+ 4 | [INFO] [ros2_control_node-1]: process started with pid [6525]
+ 5 | [INFO] [robot_state_publisher-2]: process started with pid [6526]
+ 6 | [INFO] [spawner-3]: process started with pid [6527]
+ 7 | [INFO] [spawner-4]: process started with pid [6528]
+ 8 | [robot_state_publisher-2] [WARN] [1743631010.481635657] [kdl_parser]: Converting unknown joint type of joint 'world_to_body' into a fixed joint
+ 9 | [robot_state_publisher-2] [INFO] [1743631010.482050232] [robot_state_publisher]: Robot initialized
+10 | [ros2_control_node-1] [INFO] [1743631010.525253393] [controller_manager]: Subscribing to '/robot_description' topic for robot description.
+11 | [ros2_control_node-1] [INFO] [1743631010.525601042] [controller_manager]: update rate is 1000 Hz
+12 | [ros2_control_node-1] [INFO] [1743631010.525877061] [controller_manager]: Successful set up FIFO RT scheduling policy with priority 50.
+13 | [ros2_control_node-1] [INFO] [1743631010.539979200] [controller_manager]: Received robot description from topic.
+14 | [ros2_control_node-1] [INFO] [1743631010.549731257] [controller_manager.resource_manager]: Loading hardware 'control_board_hardware_interface' 
+15 | [ros2_control_node-1] [INFO] [1743631010.559248757] [controller_manager.resource_manager]: Loaded hardware 'control_board_hardware_interface' from plugin 'control_board_hardware_interface/ControlBoardHardwareInterface'
+16 | [ros2_control_node-1] [INFO] [1743631010.559469295] [controller_manager.resource_manager]: Initialize hardware 'control_board_hardware_interface' 
+17 | [ros2_control_node-1] [BNO055] Using device name /dev/i2c-1
+18 | [ros2_control_node-1] Connected
+19 | [ros2_control_node-1] First receive finished
+20 | [ros2_control_node-1] second receive finished
+21 | [ros2_control_node-1] Reset
+22 | [ros2_control_node-1] Sent first packet
+23 | [ros2_control_node-1] Correct Product ID
+24 | [ros2_control_node-1] Enabling rot vec + gyro. Micros between reports: 10000
+25 | [ros2_control_node-1] [INFO] [1743631011.014276317] [controller_manager.resource_manager]: Successful initialization of hardware 'control_board_hardware_interface'
+26 | [ros2_control_node-1] [WARN] [1743631011.014465595] [controller_manager.resource_manager]: Importing state interfaces for the hardware 'control_board_hardware_interface' returned no state interfaces.
+27 | [ros2_control_node-1] [INFO] [1743631011.014757114] [resource_manager]: 'configure' hardware 'control_board_hardware_interface' 
+28 | [ros2_control_node-1] [INFO] [1743631011.014808003] [ControlBoardHardwareInterface]: Successfully configured!
+29 | [ros2_control_node-1] [INFO] [1743631011.014820374] [resource_manager]: Successful 'configure' of hardware 'control_board_hardware_interface'
+30 | [ros2_control_node-1] [INFO] [1743631011.014846503] [resource_manager]: 'activate' hardware 'control_board_hardware_interface' 
+31 | [ros2_control_node-1] [WARN] [1743631011.024132929] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+32 | [ros2_control_node-1] [WARN] [1743631011.026178434] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+33 | [ros2_control_node-1] [WARN] [1743631011.032921317] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+34 | [ros2_control_node-1] [WARN] [1743631011.036200231] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+35 | [ros2_control_node-1] [WARN] [1743631011.040052832] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+36 | [ros2_control_node-1] [WARN] [1743631011.043156560] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+37 | [ros2_control_node-1] [WARN] [1743631011.045263472] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+38 | [ros2_control_node-1] [WARN] [1743631011.047405291] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+39 | [ros2_control_node-1] [WARN] [1743631011.050959761] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+40 | [ros2_control_node-1] [WARN] [1743631011.056010956] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+41 | [ros2_control_node-1] [WARN] [1743631011.059072851] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+42 | [ros2_control_node-1] [WARN] [1743631011.061153707] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+43 | [ros2_control_node-1] [WARN] [1743631011.063202323] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+44 | [ros2_control_node-1] [WARN] [1743631011.066831089] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+45 | [ros2_control_node-1] [WARN] [1743631011.072106766] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+46 | [ros2_control_node-1] [WARN] [1743631011.075356236] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+47 | [ros2_control_node-1] [WARN] [1743631011.078682705] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+48 | [ros2_control_node-1] [WARN] [1743631011.080835395] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+49 | [ros2_control_node-1] [WARN] [1743631011.084723921] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+50 | [ros2_control_node-1] [WARN] [1743631011.086964907] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+51 | [ros2_control_node-1] [WARN] [1743631011.090122858] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+52 | [ros2_control_node-1] [WARN] [1743631011.092092455] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+53 | [ros2_control_node-1] [WARN] [1743631011.093856921] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+54 | [ros2_control_node-1] [WARN] [1743631011.096489575] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+55 | [ros2_control_node-1] [WARN] [1743631011.122573905] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+56 | [ros2_control_node-1] [WARN] [1743631011.125293410] [ControlBoardHardwareInterface]: Bad IMU sample [0.000000, 0.000000, 0.000000, 0.000000]. Retrying...
+57 | [ros2_control_node-1] [INFO] [1743631011.126213264] [ControlBoardHardwareInterface]: Homing actuators...
+58 | [spawner-4] [INFO] [1743631011.167820736] [spawner_imu_sensor_broadcaster]: waiting for service /controller_manager/list_controllers to become available...
+59 | [spawner-3] [INFO] [1743631011.167815958] [spawner_joint_state_broadcaster]: waiting for service /controller_manager/list_controllers to become available...
+60 | [ros2_control_node-1] [INFO] [1743631011.401026815] [ControlBoardHardwareInterface]: Homed actuator 2
+61 | [ros2_control_node-1] [INFO] [1743631011.401058703] [ControlBoardHardwareInterface]: Homed actuator 5
+62 | [ros2_control_node-1] [INFO] [1743631011.401063889] [ControlBoardHardwareInterface]: Homed actuator 8
+63 | [ros2_control_node-1] [INFO] [1743631011.401067778] [ControlBoardHardwareInterface]: Homed actuator 11
+64 | [ros2_control_node-1] [INFO] [1743631011.645872639] [ControlBoardHardwareInterface]: Homed actuator 1
+65 | [ros2_control_node-1] [INFO] [1743631011.645905139] [ControlBoardHardwareInterface]: Homed actuator 4
+66 | [ros2_control_node-1] [INFO] [1743631011.645910324] [ControlBoardHardwareInterface]: Homed actuator 7
+67 | [ros2_control_node-1] [INFO] [1743631011.645913954] [ControlBoardHardwareInterface]: Homed actuator 10
+68 | [ros2_control_node-1] [INFO] [1743631011.888986552] [ControlBoardHardwareInterface]: Homed actuator 6
+69 | [ros2_control_node-1] [INFO] [1743631011.889019478] [ControlBoardHardwareInterface]: Homed actuator 9
+70 | [ros2_control_node-1] [RT SPI] command size good
+71 | [ros2_control_node-1] [RT SPI] data size good
+72 | [ros2_control_node-1] [RT SPI] Open
+73 | c[ros2_control_node-1] [INFO] [1743631020.357776313] [ControlBoardHardwareInterface]: Homed actuator 0
+74 | ^C[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+75 | [ros2_control_node-1] [INFO] [1743631020.530514697] [rclcpp]: signal_handler(signum=2)
+76 | [robot_state_publisher-2] [INFO] [1743631020.530515919] [rclcpp]: signal_handler(signum=2)
+77 | [ros2_control_node-1] [INFO] [1743631020.634301739] [ControlBoardHardwareInterface]: Homed actuator 3
+78 | [INFO] [robot_state_publisher-2]: process has finished cleanly [pid 6526]
+79 | [INFO] [spawner-3]: process has finished cleanly [pid 6527]
+80 | [INFO] [spawner-4]: process has finished cleanly [pid 6528]
+81 | [ros2_control_node-1] [INFO] [1743631021.511638466] [ControlBoardHardwareInterface]: Finished homing!
+82 | [ros2_control_node-1] [INFO] [1743631021.511659133] [ControlBoardHardwareInterface]: Successfully activated!
+83 | [ros2_control_node-1] [INFO] [1743631021.511672485] [resource_manager]: Successful 'activate' of hardware 'control_board_hardware_interface'
+84 | [ros2_control_node-1] [INFO] [1743631021.511711188] [controller_manager]: Resource Manager has been successfully initialized. Starting Controller Manager services...
+85 | [ros2_control_node-1] terminate called after throwing an instance of 'rclcpp::exceptions::RCLError'
+86 | [ros2_control_node-1]   what():  could not create service: rcl node's context is invalid, at ./src/rcl/node.c:404
+87 | 
+88 | 
+
+
+--------------------------------------------------------------------------------
+/responses/topic-list.txt:
+--------------------------------------------------------------------------------
+ 1 | /diagnostics
+ 2 | /joint_states
+ 3 | /parameter_events
+ 4 | /robot_description
+ 5 | /rosout
+ 6 | /tf
+ 7 | /tf_static
+ 8 | 
+ 9 | 
+10 | 
+
+
+--------------------------------------------------------------------------------

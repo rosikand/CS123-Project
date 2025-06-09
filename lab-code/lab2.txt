@@ -1,0 +1,670 @@
+├── __pycache__
+    └── lab_2.launch.cpython-312.pyc
+├── lab_2.launch.py
+├── lab_2.py
+├── lab_2.rviz
+├── lab_2.yaml
+└── test.py
+
+
+/__pycache__/lab_2.launch.cpython-312.pyc:
+--------------------------------------------------------------------------------
+https://raw.githubusercontent.com/TaylorT52/CS123-Group3/lab2/__pycache__/lab_2.launch.cpython-312.pyc
+
+
+--------------------------------------------------------------------------------
+/lab_2.launch.py:
+--------------------------------------------------------------------------------
+  1 | # Copyright 2021 Stogl Robotics Consulting UG (haftungsbeschränkt)
+  2 | #
+  3 | # Licensed under the Apache License, Version 2.0 (the "License");
+  4 | # you may not use this file except in compliance with the License.
+  5 | # You may obtain a copy of the License at
+  6 | #
+  7 | #     http://www.apache.org/licenses/LICENSE-2.0
+  8 | #
+  9 | # Unless required by applicable law or agreed to in writing, software
+ 10 | # distributed under the License is distributed on an "AS IS" BASIS,
+ 11 | # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ 12 | # See the License for the specific language governing permissions and
+ 13 | # limitations under the License.
+ 14 | 
+ 15 | 
+ 16 | from launch import LaunchDescription
+ 17 | from launch.actions import RegisterEventHandler
+ 18 | from launch.event_handlers import OnProcessExit
+ 19 | from launch.substitutions import Command, FindExecutable, PathJoinSubstitution
+ 20 | 
+ 21 | from launch_ros.actions import Node
+ 22 | from launch_ros.substitutions import FindPackageShare
+ 23 | 
+ 24 | 
+ 25 | def generate_launch_description():
+ 26 |     # Get URDF via xacro
+ 27 |     robot_description_content = Command(
+ 28 |         [
+ 29 |             PathJoinSubstitution([FindExecutable(name="xacro")]),
+ 30 |             " ",
+ 31 |             PathJoinSubstitution(
+ 32 |                 [
+ 33 | #                    FindPackageShare("control_board_hardware_interface"),
+ 34 |                     # "/home/pi/ros2_ws/src/control_board_hardware_interface",
+ 35 |                     # "test",
+ 36 |                     # "test_state_publisher.urdf.xacro",
+ 37 |                     "/home/pi/ros2_ws/src/pupper_v3_description",
+ 38 |                     "description",
+ 39 |                     "pupper_v3.urdf.xacro",
+ 40 |                 ]
+ 41 |             ),
+ 42 |         ]
+ 43 |     )
+ 44 |     robot_description = {"robot_description": robot_description_content}
+ 45 | 
+ 46 |     robot_controllers = PathJoinSubstitution(
+ 47 |         [
+ 48 | #            FindPackageShare("control_board_hardware_interface"),
+ 49 |             "/home/pi/lab_2",
+ 50 |             "lab_2.yaml",
+ 51 |         ]
+ 52 |     )
+ 53 |     # rviz_config_file = PathJoinSubstitution(
+ 54 |     #     [FindPackageShare("ros2_control_demo_example_1"), "rviz", "rrbot.rviz"]
+ 55 |     # )
+ 56 | 
+ 57 |     control_node = Node(
+ 58 |         package="controller_manager",
+ 59 |         executable="ros2_control_node",
+ 60 |         parameters=[robot_description, robot_controllers],
+ 61 |         output="both",
+ 62 |     )
+ 63 |     robot_state_pub_node = Node(
+ 64 |         package="robot_state_publisher",
+ 65 |         executable="robot_state_publisher",
+ 66 |         output="both",
+ 67 |         parameters=[robot_description],
+ 68 |     )
+ 69 |     # rviz_node = Node(
+ 70 |     #     package="rviz2",
+ 71 |     #     executable="rviz2",
+ 72 |     #     name="rviz2",
+ 73 |     #     output="log",
+ 74 |     #     arguments=["-d", rviz_config_file],
+ 75 |     # )
+ 76 | #    joy_node = Node(
+ 77 | #        package="joy_linux",
+ 78 | #        executable="joy_linux_node",
+ 79 | #        output="both",
+ 80 | #    )
+ 81 | 
+ 82 |     joint_state_broadcaster_spawner = Node(
+ 83 |         package="controller_manager",
+ 84 |         executable="spawner",
+ 85 |         arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager", "--controller-manager-timeout", "30"],
+ 86 |     )
+ 87 | 
+ 88 |     imu_sensor_broadcaster_spawner = Node(
+ 89 |         package="controller_manager",
+ 90 |         executable="spawner",
+ 91 |         arguments=["imu_sensor_broadcaster", "--controller-manager", "/controller_manager", "--controller-manager-timeout", "30"],
+ 92 |     )
+ 93 | 
+ 94 |     robot_controller_spawner = Node(
+ 95 |         package="controller_manager",
+ 96 |         executable="spawner",
+ 97 |         arguments=["forward_command_controller", "--controller-manager", "/controller_manager", "--controller-manager-timeout", "30"],
+ 98 |     )
+ 99 | 
+100 |     # Delay rviz start after `joint_state_broadcaster`
+101 |     # delay_rviz_after_joint_state_broadcaster_spawner = RegisterEventHandler(
+102 |     #     event_handler=OnProcessExit(
+103 |     #         target_action=joint_state_broadcaster_spawner,
+104 |     #         on_exit=[rviz_node],
+105 |     #     )
+106 |     # )
+107 | 
+108 |     # delay_joint_state_broadcaster_spawner_after_control_node = RegisterEventHandler(
+109 |     #     event_handler=OnProcessExit(
+110 |     #         target_action=joint_state_broadcaster_spawner,
+111 |     #         on_exit=[control_node],
+112 |     #     )
+113 |     # )
+114 | 
+115 |     # Delay start of robot_controller after `joint_state_broadcaster`
+116 |     delay_robot_controller_spawner_after_joint_state_broadcaster_spawner = RegisterEventHandler(
+117 |         event_handler=OnProcessExit(
+118 |             target_action=joint_state_broadcaster_spawner,
+119 |             on_exit=[robot_controller_spawner],
+120 |         )
+121 |     )
+122 | 
+123 |     nodes = [
+124 |         control_node,
+125 |  #       joy_node,
+126 |         robot_state_pub_node,
+127 |         joint_state_broadcaster_spawner,
+128 |         imu_sensor_broadcaster_spawner,
+129 |         # delay_rviz_after_joint_state_broadcaster_spawner,
+130 |         delay_robot_controller_spawner_after_joint_state_broadcaster_spawner,
+131 |     ]
+132 | 
+133 |     return LaunchDescription(nodes)
+134 | 
+
+
+--------------------------------------------------------------------------------
+/lab_2.py:
+--------------------------------------------------------------------------------
+  1 | import rclpy
+  2 | from rclpy.node import Node
+  3 | from sensor_msgs.msg import JointState
+  4 | from std_msgs.msg import Float64MultiArray
+  5 | from visualization_msgs.msg import Marker
+  6 | import numpy as np
+  7 | 
+  8 | class ForwardKinematics(Node):
+  9 | 
+ 10 |     def __init__(self):
+ 11 |         super().__init__('forward_kinematics')
+ 12 |         self.joint_subscription = self.create_subscription(
+ 13 |             JointState,
+ 14 |             'joint_states',
+ 15 |             self.listener_callback,
+ 16 |             10)
+ 17 |         self.joint_subscription  # prevent unused variable warning
+ 18 | 
+ 19 |         self.position_publisher = self.create_publisher(
+ 20 |             Float64MultiArray,
+ 21 |             'leg_front_r_end_effector_position',
+ 22 |             10)
+ 23 | 
+ 24 |         self.marker_publisher = self.create_publisher(
+ 25 |             Marker,
+ 26 |             'marker',
+ 27 |             10)
+ 28 | 
+ 29 |         timer_period = 0.1  # publish FK information and marker at 10Hz
+ 30 |         self.timer = self.create_timer(timer_period, self.timer_callback)
+ 31 | 
+ 32 |         self.joint_positions = None
+ 33 | 
+ 34 |     def listener_callback(self, msg):
+ 35 |         # Extract the positions of the joints related to leg_front_r
+ 36 |         joints_of_interest = ['leg_front_r_1', 'leg_front_r_2', 'leg_front_r_3']
+ 37 |         self.joint_positions = [msg.position[msg.name.index(joint)] for joint in joints_of_interest]
+ 38 | 
+ 39 |     def forward_kinematics(self, theta1, theta2, theta3):
+ 40 | 
+ 41 |         def rotation_x(angle):
+ 42 |             # rotation about the x-axis implemented for you
+ 43 |             return np.array([
+ 44 |                 [1, 0, 0, 0],
+ 45 |                 [0, np.cos(angle), -np.sin(angle), 0],
+ 46 |                 [0, np.sin(angle), np.cos(angle), 0],
+ 47 |                 [0, 0, 0, 1]
+ 48 |             ])
+ 49 | 
+ 50 |         def rotation_y(angle):
+ 51 |             return np.array([
+ 52 |                 [np.cos(angle), 0, np.sin(angle), 0],
+ 53 |                 [0, 1, 0, 0],
+ 54 |                 [-np.sin(angle), 0, np.cos(angle), 0], 
+ 55 |                 [0, 0, 0, 1]
+ 56 |             ])
+ 57 |         
+ 58 |         def rotation_z(angle):
+ 59 |             return np.array([
+ 60 |                 [np.cos(angle), -np.sin(angle), 0, 0], 
+ 61 |                 [np.sin(angle), np.cos(angle), 0, 0], 
+ 62 |                 [0, 0, 1, 0], 
+ 63 |                 [0, 0, 0, 1]
+ 64 |             ])
+ 65 | 
+ 66 |         def translation(x, y, z):
+ 67 |             return np.array([
+ 68 |                 [1, 0, 0, x],
+ 69 |                 [0, 1, 0 ,y],
+ 70 |                 [0, 0, 1, z],
+ 71 |                 [0, 0, 0, 1]
+ 72 |             ])
+ 73 | 
+ 74 | 
+ 75 |         #translation matrices 
+ 76 | 
+ 77 |         # T_0_1 (base_link to leg_front_r_1)
+ 78 |         T_0_1 = translation(0.07500, -0.0445, 0) @ rotation_x(1.57080) @ rotation_z(theta1)
+ 79 | 
+ 80 |         # T_1_2 (leg_front_r_1 to leg_front_r_2)
+ 81 |         ## TODO: Implement the transformation matrix from leg_front_r_1 to leg_front_r_2
+ 82 |         T_1_2 = translation(0, 0, 0.039) @ rotation_y(-np.pi / 2) @ rotation_z(theta2)
+ 83 | 
+ 84 |         # T_2_3 (leg_front_r_2 to leg_front_r_3)
+ 85 |         ## TODO: Implement the transformation matrix from leg_front_r_2 to leg_front_r_3
+ 86 |         T_2_3 = translation(0, -0.0494, 0.0685) @ rotation_y(np.pi / 2) @ rotation_z(theta3)
+ 87 | 
+ 88 |         # T_3_ee (leg_front_r_3 to end-effector)
+ 89 |         T_3_ee = translation(0.06231, -0.06216, 0.018)
+ 90 | 
+ 91 |         # TODO: Compute the final transformation. T_0_ee is a concatenation of the previous transformation matrices
+ 92 |         T_0_ee = T_0_1 @ T_1_2 @ T_2_3 @ T_3_ee
+ 93 | 
+ 94 |         # TODO: Extract the end-effector position.
+ 95 |         end_effector_position = T_0_ee[:3, 3] 
+ 96 | 
+ 97 |         return end_effector_position
+ 98 | 
+ 99 | 
+100 |     def timer_callback(self):
+101 |         if self.joint_positions is not None:
+102 |             # Joint angles
+103 |             theta1 = self.joint_positions[0]
+104 |             theta2 = self.joint_positions[1]
+105 |             theta3 = self.joint_positions[2]
+106 | 
+107 |             end_effector_position = self.forward_kinematics(theta1, theta2, theta3)
+108 | 
+109 |             marker = Marker()
+110 |             marker.header.frame_id = '/base_link'
+111 |             marker.header.stamp = self.get_clock().now().to_msg()
+112 |             marker.type = marker.SPHERE
+113 |             marker.id = 0
+114 |             marker.color.r = 0.0
+115 |             marker.color.g = 1.0
+116 |             marker.color.b = 0.0
+117 |             marker.color.a = 1.0
+118 |             marker.scale.x = 0.05
+119 |             marker.scale.y = 0.05
+120 |             marker.scale.z = 0.05
+121 |             marker.pose.position.x = end_effector_position[0]
+122 |             marker.pose.position.y = end_effector_position[1]
+123 |             marker.pose.position.z = end_effector_position[2]
+124 |             self.marker_publisher.publish(marker)
+125 | 
+126 |             position = Float64MultiArray()
+127 |             position.data = end_effector_position
+128 |             self.position_publisher.publish(position)
+129 |             # self.get_logger().info(f'theta1 = {theta1:.1f}, theta2 = {theta2:.1f}, theta3 = {theta3:.1f}')
+130 |             self.get_logger().info(f'End-Effector Position: x={end_effector_position[0]:.2f}, y={end_effector_position[1]:.2f}, z={end_effector_position[2]:.2f}')
+131 | 
+132 | def main(args=None):
+133 |     rclpy.init(args=args)
+134 | 
+135 |     forward_kinematics = ForwardKinematics()
+136 | 
+137 |     rclpy.spin(forward_kinematics)
+138 | 
+139 |     forward_kinematics.destroy_node()
+140 |     rclpy.shutdown()
+141 | 
+142 | if __name__ == '__main__':
+143 |     main()
+144 | 
+
+
+--------------------------------------------------------------------------------
+/lab_2.rviz:
+--------------------------------------------------------------------------------
+  1 | Panels:
+  2 |   - Class: rviz_common/Displays
+  3 |     Help Height: 78
+  4 |     Name: Displays
+  5 |     Property Tree Widget:
+  6 |       Expanded:
+  7 |         - /Global Options1
+  8 |         - /Status1
+  9 |         - /RobotModel1
+ 10 |         - /Marker1
+ 11 |       Splitter Ratio: 0.5
+ 12 |     Tree Height: 527
+ 13 |   - Class: rviz_common/Selection
+ 14 |     Name: Selection
+ 15 |   - Class: rviz_common/Tool Properties
+ 16 |     Expanded:
+ 17 |       - /2D Goal Pose1
+ 18 |       - /Publish Point1
+ 19 |     Name: Tool Properties
+ 20 |     Splitter Ratio: 0.5886790156364441
+ 21 |   - Class: rviz_common/Views
+ 22 |     Expanded:
+ 23 |       - /Current View1
+ 24 |     Name: Views
+ 25 |     Splitter Ratio: 0.5
+ 26 |   - Class: rviz_common/Time
+ 27 |     Experimental: false
+ 28 |     Name: Time
+ 29 |     SyncMode: 0
+ 30 |     SyncSource: ""
+ 31 | Visualization Manager:
+ 32 |   Class: ""
+ 33 |   Displays:
+ 34 |     - Alpha: 0.5
+ 35 |       Cell Size: 1
+ 36 |       Class: rviz_default_plugins/Grid
+ 37 |       Color: 160; 160; 164
+ 38 |       Enabled: true
+ 39 |       Line Style:
+ 40 |         Line Width: 0.029999999329447746
+ 41 |         Value: Lines
+ 42 |       Name: Grid
+ 43 |       Normal Cell Count: 0
+ 44 |       Offset:
+ 45 |         X: 0
+ 46 |         Y: 0
+ 47 |         Z: 0
+ 48 |       Plane: XY
+ 49 |       Plane Cell Count: 10
+ 50 |       Reference Frame: <Fixed Frame>
+ 51 |       Value: true
+ 52 |     - Alpha: 1
+ 53 |       Class: rviz_default_plugins/RobotModel
+ 54 |       Collision Enabled: false
+ 55 |       Description File: ""
+ 56 |       Description Source: Topic
+ 57 |       Description Topic:
+ 58 |         Depth: 5
+ 59 |         Durability Policy: Volatile
+ 60 |         History Policy: Keep Last
+ 61 |         Reliability Policy: Reliable
+ 62 |         Value: /robot_description
+ 63 |       Enabled: true
+ 64 |       Links:
+ 65 |         All Links Enabled: true
+ 66 |         Expand Joint Details: false
+ 67 |         Expand Link Details: false
+ 68 |         Expand Tree: false
+ 69 |         Link Tree Style: Links in Alphabetic Order
+ 70 |         base_link:
+ 71 |           Alpha: 1
+ 72 |           Show Axes: false
+ 73 |           Show Trail: false
+ 74 |           Value: true
+ 75 |         leg_back_l_1:
+ 76 |           Alpha: 1
+ 77 |           Show Axes: false
+ 78 |           Show Trail: false
+ 79 |           Value: true
+ 80 |         leg_back_l_2:
+ 81 |           Alpha: 1
+ 82 |           Show Axes: false
+ 83 |           Show Trail: false
+ 84 |           Value: true
+ 85 |         leg_back_l_3:
+ 86 |           Alpha: 1
+ 87 |           Show Axes: false
+ 88 |           Show Trail: false
+ 89 |           Value: true
+ 90 |         leg_back_r_1:
+ 91 |           Alpha: 1
+ 92 |           Show Axes: false
+ 93 |           Show Trail: false
+ 94 |           Value: true
+ 95 |         leg_back_r_2:
+ 96 |           Alpha: 1
+ 97 |           Show Axes: false
+ 98 |           Show Trail: false
+ 99 |           Value: true
+100 |         leg_back_r_3:
+101 |           Alpha: 1
+102 |           Show Axes: false
+103 |           Show Trail: false
+104 |           Value: true
+105 |         leg_front_l_1:
+106 |           Alpha: 1
+107 |           Show Axes: false
+108 |           Show Trail: false
+109 |           Value: true
+110 |         leg_front_l_2:
+111 |           Alpha: 1
+112 |           Show Axes: false
+113 |           Show Trail: false
+114 |           Value: true
+115 |         leg_front_l_3:
+116 |           Alpha: 1
+117 |           Show Axes: false
+118 |           Show Trail: false
+119 |           Value: true
+120 |         leg_front_r_1:
+121 |           Alpha: 1
+122 |           Show Axes: false
+123 |           Show Trail: false
+124 |           Value: true
+125 |         leg_front_r_2:
+126 |           Alpha: 1
+127 |           Show Axes: false
+128 |           Show Trail: false
+129 |           Value: true
+130 |         leg_front_r_3:
+131 |           Alpha: 1
+132 |           Show Axes: false
+133 |           Show Trail: false
+134 |           Value: true
+135 |         world:
+136 |           Alpha: 1
+137 |           Show Axes: false
+138 |           Show Trail: false
+139 |       Mass Properties:
+140 |         Inertia: false
+141 |         Mass: false
+142 |       Name: RobotModel
+143 |       TF Prefix: ""
+144 |       Update Interval: 0
+145 |       Value: true
+146 |       Visual Enabled: true
+147 |     - Class: rviz_default_plugins/Marker
+148 |       Enabled: true
+149 |       Name: Marker
+150 |       Namespaces:
+151 |         "": true
+152 |       Topic:
+153 |         Depth: 5
+154 |         Durability Policy: Volatile
+155 |         Filter size: 10
+156 |         History Policy: Keep Last
+157 |         Reliability Policy: Reliable
+158 |         Value: /marker
+159 |       Value: true
+160 |   Enabled: true
+161 |   Global Options:
+162 |     Background Color: 48; 48; 48
+163 |     Fixed Frame: base_link
+164 |     Frame Rate: 30
+165 |   Name: root
+166 |   Tools:
+167 |     - Class: rviz_default_plugins/Interact
+168 |       Hide Inactive Objects: true
+169 |     - Class: rviz_default_plugins/MoveCamera
+170 |     - Class: rviz_default_plugins/Select
+171 |     - Class: rviz_default_plugins/FocusCamera
+172 |     - Class: rviz_default_plugins/Measure
+173 |       Line color: 128; 128; 0
+174 |     - Class: rviz_default_plugins/SetInitialPose
+175 |       Covariance x: 0.25
+176 |       Covariance y: 0.25
+177 |       Covariance yaw: 0.06853891909122467
+178 |       Topic:
+179 |         Depth: 5
+180 |         Durability Policy: Volatile
+181 |         History Policy: Keep Last
+182 |         Reliability Policy: Reliable
+183 |         Value: /initialpose
+184 |     - Class: rviz_default_plugins/SetGoal
+185 |       Topic:
+186 |         Depth: 5
+187 |         Durability Policy: Volatile
+188 |         History Policy: Keep Last
+189 |         Reliability Policy: Reliable
+190 |         Value: /goal_pose
+191 |     - Class: rviz_default_plugins/PublishPoint
+192 |       Single click: true
+193 |       Topic:
+194 |         Depth: 5
+195 |         Durability Policy: Volatile
+196 |         History Policy: Keep Last
+197 |         Reliability Policy: Reliable
+198 |         Value: /clicked_point
+199 |   Transformation:
+200 |     Current:
+201 |       Class: rviz_default_plugins/TF
+202 |   Value: true
+203 |   Views:
+204 |     Current:
+205 |       Class: rviz_default_plugins/Orbit
+206 |       Distance: 1.3629194498062134
+207 |       Enable Stereo Rendering:
+208 |         Stereo Eye Separation: 0.05999999865889549
+209 |         Stereo Focal Distance: 1
+210 |         Swap Stereo Eyes: false
+211 |         Value: false
+212 |       Focal Point:
+213 |         X: 0
+214 |         Y: 0
+215 |         Z: 0
+216 |       Focal Shape Fixed Size: true
+217 |       Focal Shape Size: 0.05000000074505806
+218 |       Invert Z Axis: false
+219 |       Name: Current View
+220 |       Near Clip Distance: 0.009999999776482582
+221 |       Pitch: 0.2603980302810669
+222 |       Target Frame: <Fixed Frame>
+223 |       Value: Orbit (rviz)
+224 |       Yaw: 4.8535871505737305
+225 |     Saved: ~
+226 | Window Geometry:
+227 |   Displays:
+228 |     collapsed: false
+229 |   Height: 831
+230 |   Hide Left Dock: false
+231 |   Hide Right Dock: false
+232 |   QMainWindow State: 000000ff00000000fd0000000400000000000001560000029dfc0200000008fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005d00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073020000014b000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073010000003f0000029d000000cc00fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c0000026100000001000001000000029dfc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073010000003f0000029d000000a900fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000005fe0000003efc0100000002fb0000000800540069006d00650100000000000005fe0000026f00fffffffb0000000800540069006d006501000000000000045000000000000000000000039c0000029d00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+233 |   Selection:
+234 |     collapsed: false
+235 |   Time:
+236 |     collapsed: false
+237 |   Tool Properties:
+238 |     collapsed: false
+239 |   Views:
+240 |     collapsed: false
+241 |   Width: 1534
+242 |   X: 786
+243 |   Y: 32
+244 | 
+
+
+--------------------------------------------------------------------------------
+/lab_2.yaml:
+--------------------------------------------------------------------------------
+ 1 | controller_manager:
+ 2 |   ros__parameters:
+ 3 |     update_rate: 1000 #  Hz
+ 4 | 
+ 5 |     forward_command_controller:
+ 6 |       type: forward_command_controller/MultiInterfaceForwardCommandController
+ 7 | 
+ 8 |     joint_state_broadcaster:
+ 9 |       type: joint_state_broadcaster/JointStateBroadcaster
+10 |     
+11 |     imu_sensor_broadcaster:
+12 |       type: imu_sensor_broadcaster/IMUSensorBroadcaster
+13 | 
+14 | forward_command_controller:
+15 |   ros__parameters:
+16 |     joint: 'leg_front_r_3'
+17 |     interface_names: ['effort', 'kp', 'kd']
+18 | 
+19 | joint_state_broadcaster:
+20 |   ros__parameters:
+21 |     joints:
+22 |       - leg_front_r_1
+23 |       - leg_front_r_2
+24 |       - leg_front_r_3
+25 |       - leg_front_l_1
+26 |       - leg_front_l_2
+27 |       - leg_front_l_3
+28 |       - leg_back_r_1
+29 |       - leg_back_r_2
+30 |       - leg_back_r_3
+31 |       - leg_back_l_1
+32 |       - leg_back_l_2
+33 |       - leg_back_l_3
+34 |     interface_name: position
+35 | 
+36 | imu_sensor_broadcaster:
+37 |   ros__parameters:
+38 |     frame_id: base_link
+39 |     sensor_name: imu_sensor
+40 | 
+
+
+--------------------------------------------------------------------------------
+/test.py:
+--------------------------------------------------------------------------------
+ 1 | import numpy as np
+ 2 | 
+ 3 | def forward_kinematics(theta1, theta2, theta3):
+ 4 | 
+ 5 |         def rotation_x(angle):
+ 6 |             # rotation about the x-axis implemented for you
+ 7 |             return np.array([
+ 8 |                 [1, 0, 0, 0],
+ 9 |                 [0, np.cos(angle), -np.sin(angle), 0],
+10 |                 [0, np.sin(angle), np.cos(angle), 0],
+11 |                 [0, 0, 0, 1]
+12 |             ])
+13 | 
+14 |         def rotation_y(angle):
+15 |             return np.array([
+16 |                 [np.cos(angle), 0, np.sin(angle), 0],
+17 |                 [0, 1, 0, 0],
+18 |                 [-np.sin(angle), 0, np.cos(angle), 0], 
+19 |                 [0, 0, 0, 1]
+20 |             ])
+21 |         
+22 |         def rotation_z(angle):
+23 |             return np.array([
+24 |                 [np.cos(angle), -np.sin(angle), 0, 0], 
+25 |                 [np.sin(angle), np.cos(angle), 0, 0], 
+26 |                 [0, 0, 1, 0], 
+27 |                 [0, 0, 0, 1]
+28 |             ])
+29 | 
+30 |         def translation(x, y, z):
+31 |             return np.array([
+32 |                 [1, 0, 0, x],
+33 |                 [0, 1, 0 ,y],
+34 |                 [0, 0, 1, z],
+35 |                 [0, 0, 0, 1]
+36 |             ])
+37 | 
+38 | 
+39 |         #translation matrices 
+40 | 
+41 |         # T_0_1 (base_link to leg_front_r_1)
+42 |         T_0_1 = translation(0.07500, -0.0445, 0) @ rotation_x(1.57080) @ rotation_z(theta1)
+43 | 
+44 |         # T_1_2 (leg_front_r_1 to leg_front_r_2)
+45 |         ## TODO: Implement the transformation matrix from leg_front_r_1 to leg_front_r_2
+46 |         T_1_2 = translation(0, 0, 0.039-0.008) @ rotation_y(-np.pi / 2) @ rotation_z(theta2)
+47 | 
+48 |         # T_2_3 (leg_front_r_2 to leg_front_r_3)
+49 |         ## TODO: Implement the transformation matrix from leg_front_r_2 to leg_front_r_3
+50 |         T_2_3 = translation(0, -0.0494, 0.0685) @ rotation_y(np.pi / 2) @ rotation_z(theta3)
+51 | 
+52 |         # T_3_ee (leg_front_r_3 to end-effector)
+53 |         T_3_ee = translation(0.06231, -0.06216, 0.018)
+54 | 
+55 |         # TODO: Compute the final transformation. T_0_ee is a concatenation of the previous transformation matrices
+56 |         T_0_ee = T_0_1 @ T_1_2 @ T_2_3 @ T_3_ee
+57 | 
+58 |         # TODO: Extract the end-effector position.
+59 |         end_effector_position = T_0_ee[:3, 3] 
+60 | 
+61 |         print(end_effector_position)
+62 | 
+63 | 
+64 |         return end_effector_position
+65 | 
+66 | forward_kinematics(0,0,0 )
+67 | 
+68 | forward_kinematics(np.pi/2,np.pi/2,np.pi/2)
+
+
+--------------------------------------------------------------------------------

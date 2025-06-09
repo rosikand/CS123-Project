@@ -1,0 +1,949 @@
+├── .gitignore
+├── coco.txt
+├── download_resources.sh
+├── hailo_detection.py
+├── lab_7.launch.py
+├── lab_7.py
+├── lab_7.yaml
+├── run.sh
+├── utils.py
+└── yolov5m_wo_spp_60p.hef
+
+
+/.gitignore:
+--------------------------------------------------------------------------------
+1 | .DS_Store
+2 | __pycache__
+
+
+--------------------------------------------------------------------------------
+/coco.txt:
+--------------------------------------------------------------------------------
+ 1 | person
+ 2 | bicycle
+ 3 | car
+ 4 | motorcycle
+ 5 | airplane
+ 6 | bus
+ 7 | train
+ 8 | truck
+ 9 | boat
+10 | traffic light
+11 | fire hydrant
+12 | stop sign
+13 | parking meter
+14 | bench
+15 | bird
+16 | cat
+17 | dog
+18 | horse
+19 | sheep
+20 | cow
+21 | elephant
+22 | bear
+23 | zebra
+24 | giraffe
+25 | backpack
+26 | umbrella
+27 | handbag
+28 | tie
+29 | suitcase
+30 | frisbee
+31 | skis
+32 | snowboard
+33 | sports ball
+34 | kite
+35 | baseball bat
+36 | baseball glove
+37 | skateboard
+38 | surfboard
+39 | tennis racket
+40 | bottle
+41 | wine glass
+42 | cup
+43 | fork
+44 | knife
+45 | spoon
+46 | bowl
+47 | banana
+48 | apple
+49 | sandwich
+50 | orange
+51 | broccoli
+52 | carrot
+53 | hot dog
+54 | pizza
+55 | donut
+56 | cake
+57 | chair
+58 | couch
+59 | potted plant
+60 | bed
+61 | dining table
+62 | toilet
+63 | tv
+64 | laptop
+65 | mouse
+66 | remote
+67 | keyboard
+68 | cell phone
+69 | microwave
+70 | oven
+71 | toaster
+72 | sink
+73 | refrigerator
+74 | book
+75 | clock
+76 | vase
+77 | scissors
+78 | teddy bear
+79 | hair drier
+80 | toothbrush
+81 | 
+
+
+--------------------------------------------------------------------------------
+/download_resources.sh:
+--------------------------------------------------------------------------------
+1 | wget https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.11.0/hailo8l/yolov5m_wo_spp_60p.hef
+2 | 
+
+
+--------------------------------------------------------------------------------
+/hailo_detection.py:
+--------------------------------------------------------------------------------
+  1 | #!/usr/bin/env python3
+  2 | """
+  3 | ROS2 node for Hailo object detection and tracking
+  4 | """
+  5 | 
+  6 | import rclpy
+  7 | from rclpy.node import Node
+  8 | from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
+  9 | from sensor_msgs.msg import Image, CompressedImage
+ 10 | from visualization_msgs.msg import MarkerArray, Marker
+ 11 | from geometry_msgs.msg import Point
+ 12 | from cv_bridge import CvBridge
+ 13 | import supervision as sv
+ 14 | import numpy as np
+ 15 | import cv2
+ 16 | import queue
+ 17 | import sys
+ 18 | import os
+ 19 | from typing import Dict, List, Tuple
+ 20 | import threading
+ 21 | 
+ 22 | sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+ 23 | from utils import HailoAsyncInference
+ 24 | 
+ 25 | 
+ 26 | class HailoDetectionNode(Node):
+ 27 |     def __init__(self):
+ 28 |         super().__init__('hailo_detection_node')
+ 29 | 
+ 30 |         # Declare and get parameters
+ 31 |         self.declare_parameter('model_path', 'yolov5m_wo_spp_60p.hef')
+ 32 |         self.declare_parameter('labels_path', 'coco.txt')
+ 33 |         self.declare_parameter('score_threshold', 0.5)
+ 34 | 
+ 35 |         self.model_path = self.get_parameter('model_path').value
+ 36 |         self.labels_path = self.get_parameter('labels_path').value
+ 37 |         self.score_threshold = self.get_parameter('score_threshold').value
+ 38 | 
+ 39 |         # Initialize CV bridge
+ 40 |         self.bridge = CvBridge()
+ 41 | 
+ 42 |         # Set up publishers and subscribers
+ 43 |         self.detection_pub = self.create_publisher(Detection2DArray, 'detections', 10)
+ 44 |         self.annotated_pub = self.create_publisher(CompressedImage, 'annotated_image', 10)
+ 45 |         self.marker_pub = self.create_publisher(MarkerArray, 'detection_markers', 10)
+ 46 |         self.image_sub = self.create_subscription(Image, '/camera/image_raw', self.image_callback, 10)
+ 47 | 
+ 48 |         # Initialize Hailo inference
+ 49 |         self.input_queue = queue.Queue()
+ 50 |         self.output_queue = queue.Queue()
+ 51 |         self.hailo_inference = HailoAsyncInference(
+ 52 |             hef_path=self.model_path,
+ 53 |             input_queue=self.input_queue,
+ 54 |             output_queue=self.output_queue,
+ 55 |         )
+ 56 |         self.model_h, self.model_w, _ = self.hailo_inference.get_input_shape()
+ 57 | 
+ 58 |         # Initialize tracking and annotation
+ 59 |         self.box_annotator = sv.RoundBoxAnnotator()
+ 60 |         self.label_annotator = sv.LabelAnnotator()
+ 61 |         self.tracker = sv.ByteTrack()
+ 62 | 
+ 63 |         # Load class names
+ 64 |         with open(self.labels_path, "r", encoding="utf-8") as f:
+ 65 |             self.class_names = f.read().splitlines()
+ 66 | 
+ 67 |         # Start inference thread
+ 68 |         self.inference_thread = threading.Thread(target=self.hailo_inference.run)
+ 69 |         self.inference_thread.start()
+ 70 | 
+ 71 |     def image_callback(self, msg):
+ 72 |         # Convert ROS Image to CV2
+ 73 |         frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+ 74 |         video_h, video_w = frame.shape[:2]
+ 75 | 
+ 76 |         # Rotate 180 degrees
+ 77 |         # ONLY UNCOMMENT IF YOUR CAMERA IS UPSIDE DOWN
+ 78 |         # frame = cv2.rotate(frame, cv2.ROTATE_180)
+ 79 | 
+ 80 |         # Swap r and b channels, then multiply r by 0.5 to fix the colors
+ 81 |         frame = frame[:, :, ::-1]
+ 82 |         frame[:, :, 0] = frame[:, :, 0] * 0.5
+ 83 | 
+ 84 |         # Preprocess frame
+ 85 |         preprocessed_frame = self.preprocess_frame(frame, self.model_h, self.model_w, video_h, video_w)
+ 86 | 
+ 87 |         # Run inference
+ 88 |         self.input_queue.put([preprocessed_frame])
+ 89 |         _, results = self.output_queue.get()
+ 90 | 
+ 91 |         if len(results) == 1:
+ 92 |             results = results[0]
+ 93 | 
+ 94 |         # Process detections
+ 95 |         detections = self.extract_detections(results, video_h, video_w, self.score_threshold)
+ 96 | 
+ 97 |         # Create Detection2DArray message
+ 98 |         detection_msg = Detection2DArray()
+ 99 |         detection_msg.header = msg.header
+100 | 
+101 |         # Create MarkerArray message
+102 |         marker_array = MarkerArray()
+103 | 
+104 |         # Convert detections to ROS messages
+105 |         for i in range(detections["num_detections"]):
+106 |             print("Class ID: ", detections["class_id"][i])
+107 |             if str(detections["class_id"][i]) != "0":
+108 |                 continue
+109 |             det = Detection2D()
+110 |             det.bbox.center.position.x = float((detections["xyxy"][i][0] + detections["xyxy"][i][2]) / 2)
+111 |             det.bbox.center.position.y = float((detections["xyxy"][i][1] + detections["xyxy"][i][3]) / 2)
+112 |             det.bbox.size_x = float(detections["xyxy"][i][2] - detections["xyxy"][i][0])
+113 |             det.bbox.size_y = float(detections["xyxy"][i][3] - detections["xyxy"][i][1])
+114 | 
+115 |             hyp = ObjectHypothesisWithPose()
+116 |             hyp.hypothesis.class_id = str(detections["class_id"][i])
+117 |             hyp.hypothesis.score = float(detections["confidence"][i])
+118 |             det.results.append(hyp)
+119 | 
+120 |             detection_msg.detections.append(det)
+121 | 
+122 |             # Create marker for bounding box
+123 |             marker = Marker()
+124 |             marker.header = msg.header
+125 |             marker.ns = "detection_boxes"
+126 |             marker.id = i
+127 |             marker.type = Marker.LINE_STRIP
+128 |             marker.action = Marker.ADD
+129 |             marker.scale.x = 0.01  # Line width
+130 |             marker.color.r = 1.0
+131 |             marker.color.g = 0.0
+132 |             marker.color.b = 0.0
+133 |             marker.color.a = 1.0
+134 | 
+135 |             # Add points to form rectangle
+136 |             x1, y1 = float(detections["xyxy"][i][0]), float(detections["xyxy"][i][1])
+137 |             x2, y2 = float(detections["xyxy"][i][2]), float(detections["xyxy"][i][3])
+138 |             points = [
+139 |                 (x1, y1, 0.0),
+140 |                 (x2, y1, 0.0),
+141 |                 (x2, y2, 0.0),
+142 |                 (x1, y2, 0.0),
+143 |                 (x1, y1, 0.0)  # Close the rectangle
+144 |             ]
+145 |             for x, y, z in points:
+146 |                 p = Point()
+147 |                 p.x = x
+148 |                 p.y = y
+149 |                 p.z = z
+150 |                 marker.points.append(p)
+151 | 
+152 |             marker_array.markers.append(marker)
+153 | 
+154 |         # Publish detections
+155 |         self.detection_pub.publish(detection_msg)
+156 |         self.marker_pub.publish(marker_array)
+157 | 
+158 |         # Create and publish annotated image
+159 |         if detections["num_detections"]:
+160 |             annotated_frame = self.postprocess_detections(
+161 |                 frame, detections, self.class_names, self.tracker,
+162 |                 self.box_annotator, self.label_annotator
+163 |             )
+164 |             _, jpg_buffer = cv2.imencode('.jpg', annotated_frame)
+165 |             annotated_msg = CompressedImage()
+166 |             annotated_msg.format = "jpeg"
+167 |             annotated_msg.data = jpg_buffer.tobytes()
+168 |         else:
+169 |             _, jpg_buffer = cv2.imencode('.jpg', frame)
+170 |             annotated_msg = CompressedImage()
+171 |             annotated_msg.format = "jpeg"
+172 |             annotated_msg.data = jpg_buffer.tobytes()
+173 |         annotated_msg.header = msg.header
+174 |         self.annotated_pub.publish(annotated_msg)
+175 | 
+176 |     def preprocess_frame(
+177 |         self, frame: np.ndarray, model_h: int, model_w: int, video_h: int, video_w: int
+178 |     ) -> np.ndarray:
+179 |         if model_h != video_h or model_w != video_w:
+180 |             frame = cv2.resize(frame, (model_w, model_h))
+181 |         return frame
+182 | 
+183 |     def extract_detections(
+184 |         self, hailo_output: List[np.ndarray], h: int, w: int, threshold: float = 0.5
+185 |     ) -> Dict[str, np.ndarray]:
+186 |         xyxy: List[np.ndarray] = []
+187 |         confidence: List[float] = []
+188 |         class_id: List[int] = []
+189 |         num_detections: int = 0
+190 | 
+191 |         for i, detections in enumerate(hailo_output):
+192 |             if len(detections) == 0:
+193 |                 continue
+194 |             for detection in detections:
+195 |                 bbox, score = detection[:4], detection[4]
+196 | 
+197 |                 if score < threshold:
+198 |                     continue
+199 | 
+200 |                 bbox[0], bbox[1], bbox[2], bbox[3] = (
+201 |                     bbox[1] * w,
+202 |                     bbox[0] * h,
+203 |                     bbox[3] * w,
+204 |                     bbox[2] * h,
+205 |                 )
+206 | 
+207 |                 xyxy.append(bbox)
+208 |                 confidence.append(score)
+209 |                 class_id.append(i)
+210 |                 num_detections += 1
+211 | 
+212 |         return {
+213 |             "xyxy": np.array(xyxy),
+214 |             "confidence": np.array(confidence),
+215 |             "class_id": np.array(class_id),
+216 |             "num_detections": num_detections,
+217 |         }
+218 | 
+219 |     def postprocess_detections(
+220 |         self, frame: np.ndarray,
+221 |         detections: Dict[str, np.ndarray],
+222 |         class_names: List[str],
+223 |         tracker: sv.ByteTrack,
+224 |         box_annotator: sv.RoundBoxAnnotator,
+225 |         label_annotator: sv.LabelAnnotator,
+226 |     ) -> np.ndarray:
+227 |         sv_detections = sv.Detections(
+228 |             xyxy=detections["xyxy"],
+229 |             confidence=detections["confidence"],
+230 |             class_id=detections["class_id"],
+231 |         )
+232 | 
+233 |         sv_detections = tracker.update_with_detections(sv_detections)
+234 | 
+235 |         labels: List[str] = [
+236 |             f"#{tracker_id} {class_names[class_id]}"
+237 |             for class_id, tracker_id in zip(sv_detections.class_id, sv_detections.tracker_id)
+238 |         ]
+239 | 
+240 |         annotated_frame = box_annotator.annotate(
+241 |             scene=frame.copy(), detections=sv_detections
+242 |         )
+243 |         annotated_labeled_frame = label_annotator.annotate(
+244 |             scene=annotated_frame, detections=sv_detections, labels=labels
+245 |         )
+246 |         return annotated_labeled_frame
+247 | 
+248 | 
+249 | def main(args=None):
+250 |     rclpy.init(args=args)
+251 |     node = HailoDetectionNode()
+252 |     rclpy.spin(node)
+253 |     node.destroy_node()
+254 |     rclpy.shutdown()
+255 | 
+256 | 
+257 | if __name__ == "__main__":
+258 |     main()
+259 | 
+
+
+--------------------------------------------------------------------------------
+/lab_7.launch.py:
+--------------------------------------------------------------------------------
+  1 | from launch import LaunchDescription
+  2 | from launch.actions import RegisterEventHandler
+  3 | from launch.event_handlers import OnProcessExit
+  4 | from launch.substitutions import Command, FindExecutable, PathJoinSubstitution
+  5 | from launch_ros.parameter_descriptions import ParameterFile
+  6 | from launch_ros.actions import Node
+  7 | from launch_ros.substitutions import FindPackageShare
+  8 | 
+  9 | 
+ 10 | def generate_launch_description():
+ 11 |     # Get URDF via xacro
+ 12 |     robot_description_content = Command(
+ 13 |         [
+ 14 |             PathJoinSubstitution([FindExecutable(name="xacro")]),
+ 15 |             " ",
+ 16 |             PathJoinSubstitution(
+ 17 |                 [
+ 18 |                     FindPackageShare("pupper_v3_description"),
+ 19 |                     "description",
+ 20 |                     "pupper_v3.urdf.xacro",
+ 21 |                 ]
+ 22 |             ),
+ 23 |         ]
+ 24 |     )
+ 25 |     robot_description = {"robot_description": robot_description_content}
+ 26 | 
+ 27 |     robot_state_publisher = Node(
+ 28 |         package="robot_state_publisher",
+ 29 |         executable="robot_state_publisher",
+ 30 |         output="both",
+ 31 |         parameters=[robot_description],
+ 32 |     )
+ 33 | 
+ 34 |     robot_controllers = ParameterFile(
+ 35 |         PathJoinSubstitution(
+ 36 |             [
+ 37 |                 "lab_7.yaml",
+ 38 |             ]
+ 39 |         ),
+ 40 |         allow_substs=True,
+ 41 |     )
+ 42 | 
+ 43 |     control_node = Node(
+ 44 |         package="controller_manager",
+ 45 |         executable="ros2_control_node",
+ 46 |         parameters=[robot_controllers],
+ 47 |         output="both",
+ 48 |     )
+ 49 | 
+ 50 |     robot_controller_spawner = Node(
+ 51 |         package="controller_manager",
+ 52 |         executable="spawner",
+ 53 |         arguments=[
+ 54 |             "neural_controller",
+ 55 |             "--controller-manager",
+ 56 |             "/controller_manager",
+ 57 |             "--controller-manager-timeout",
+ 58 |             "30",
+ 59 |         ],
+ 60 |     )
+ 61 | 
+ 62 |     joint_state_broadcaster_spawner = Node(
+ 63 |         package="controller_manager",
+ 64 |         executable="spawner",
+ 65 |         arguments=[
+ 66 |             "joint_state_broadcaster",
+ 67 |             "--controller-manager",
+ 68 |             "/controller_manager",
+ 69 |             "--controller-manager-timeout",
+ 70 |             "30",
+ 71 |         ],
+ 72 |     )
+ 73 | 
+ 74 |     imu_sensor_broadcaster_spawner = Node(
+ 75 |         package="controller_manager",
+ 76 |         executable="spawner",
+ 77 |         arguments=[
+ 78 |             "imu_sensor_broadcaster",
+ 79 |             "--controller-manager",
+ 80 |             "/controller_manager",
+ 81 |             "--controller-manager-timeout",
+ 82 |             "30",
+ 83 |         ],
+ 84 |     )
+ 85 | 
+ 86 |     camera_node = Node(
+ 87 |         package="camera_ros",
+ 88 |         executable="camera_node",
+ 89 |         output="both",
+ 90 |         parameters=[{"format": "RGB888", "width": 1400, "height": 1050}],
+ 91 |     )
+ 92 | 
+ 93 |     nodes = [
+ 94 |         robot_state_publisher,
+ 95 |         imu_sensor_broadcaster_spawner,
+ 96 |         control_node,
+ 97 |         robot_controller_spawner,
+ 98 |         joint_state_broadcaster_spawner,
+ 99 |         camera_node,
+100 |     ]
+101 | 
+102 |     return LaunchDescription(nodes)
+103 | 
+
+
+--------------------------------------------------------------------------------
+/lab_7.py:
+--------------------------------------------------------------------------------
+ 1 | from enum import Enum
+ 2 | import rclpy
+ 3 | from rclpy.node import Node
+ 4 | from geometry_msgs.msg import Twist
+ 5 | from vision_msgs.msg import Detection2DArray
+ 6 | import numpy as np
+ 7 | 
+ 8 | IMAGE_WIDTH = 1400
+ 9 | 
+10 | # TODO: Add your new constants here
+11 | 
+12 | TIMEOUT = pass #TODO threshold in timer_callback
+13 | SEARCH_YAW_VEL = pass #TODO searching constant
+14 | TRACK_FORWARD_VEL = pass #TODO tracking constant
+15 | KP = pass #TODO proportional gain for tracking
+16 | 
+17 | class State(Enum):
+18 |     SEARCH = 0
+19 |     TRACK = 1
+20 | 
+21 | class StateMachineNode(Node):
+22 |     def __init__(self):
+23 |         super().__init__('state_machine_node')
+24 | 
+25 |         self.detection_subscription = self.create_subscription(
+26 |             Detection2DArray,
+27 |             '/detections',
+28 |             self.detection_callback,
+29 |             10
+30 |         )
+31 | 
+32 |         self.command_publisher = self.create_publisher(
+33 |             Twist,
+34 |             'cmd_vel',
+35 |             10
+36 |         )
+37 | 
+38 |         self.timer = self.create_timer(0.1, self.timer_callback)
+39 |         self.state = State.TRACK
+40 | 
+41 |         # TODO: Add your new member variables here
+42 |         self.kp = pass # TODO
+43 | 
+44 |     def detection_callback(self, msg):
+45 |         """
+46 |         Determine which of the HAILO detections is the most central detected object
+47 |         """
+48 |         pass # TODO: Part 1
+49 | 
+50 |     def timer_callback(self):
+51 |         """
+52 |         Implement a timer callback that sets the moves through the state machine based on if the time since the last detection is above a threshold TIMEOUT
+53 |         """
+54 |         
+55 |         if False: # TODO: Part 3.2
+56 |             self.state = State.SEARCH
+57 |         else:
+58 |             self.state = State.TRACK
+59 | 
+60 |         yaw_command = 0.0
+61 |         forward_vel_command = 0.0
+62 | 
+63 |         if self.state == State.SEARCH:
+64 |             pass # TODO: Part 3.1
+65 |         elif self.state == State.TRACK:
+66 |             pass # TODO: Part 2 / 3.4
+67 | 
+68 |         cmd = Twist()
+69 |         cmd.angular.z = yaw_command
+70 |         cmd.linear.x = forward_vel_command
+71 |         self.command_publisher.publish(cmd)
+72 | 
+73 | def main():
+74 |     rclpy.init()
+75 |     state_machine_node = StateMachineNode()
+76 | 
+77 |     try:
+78 |         rclpy.spin(state_machine_node)
+79 |     except KeyboardInterrupt:
+80 |         print("Program terminated by user")
+81 |     finally:
+82 |         zero_cmd = Twist()
+83 |         state_machine_node.command_publisher.publish(zero_cmd)
+84 | 
+85 |         state_machine_node.destroy_node()
+86 |         rclpy.shutdown()
+87 | 
+88 | if __name__ == '__main__':
+89 |     main()
+90 | 
+
+
+--------------------------------------------------------------------------------
+/lab_7.yaml:
+--------------------------------------------------------------------------------
+ 1 | controller_manager:
+ 2 |   ros__parameters:
+ 3 |     update_rate: 500 # Hz
+ 4 | 
+ 5 |     neural_controller:
+ 6 |       type: neural_controller/NeuralController
+ 7 | 
+ 8 |     joint_state_broadcaster:
+ 9 |       type: joint_state_broadcaster/JointStateBroadcaster
+10 | 
+11 |     imu_sensor_broadcaster:
+12 |       type: imu_sensor_broadcaster/IMUSensorBroadcaster
+13 | 
+14 | imu_sensor_broadcaster:
+15 |   ros__parameters:
+16 |     update_rate: 100
+17 |     frame_id: base_link
+18 |     sensor_name: imu_sensor
+19 | 
+20 | neural_controller:
+21 |   ros__parameters:
+22 |     repeat_action: 10
+23 | 
+24 |     gain_multiplier: 1.0
+25 |     estop_kd: 0.1
+26 | 
+27 |     joint_names:
+28 |       [
+29 |         "leg_front_r_1",
+30 |         "leg_front_r_2",
+31 |         "leg_front_r_3",
+32 |         "leg_front_l_1",
+33 |         "leg_front_l_2",
+34 |         "leg_front_l_3",
+35 |         "leg_back_r_1",
+36 |         "leg_back_r_2",
+37 |         "leg_back_r_3",
+38 |         "leg_back_l_1",
+39 |         "leg_back_l_2",
+40 |         "leg_back_l_3",
+41 |       ]
+42 | 
+43 |     default_joint_pos:
+44 |       [0.26, 0.0, -0.52, -0.26, 0.0, 0.52, 0.26, 0.0, -0.52, -0.26, 0.0, 0.52]
+45 | 
+46 |     init_kps: [7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5]
+47 |     init_kds:
+48 |       [0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25]
+49 | 
+50 |     init_duration: 2.0
+51 |     fade_in_duration: 2.0
+52 | 
+53 |     action_types:
+54 |       [
+55 |         "position",
+56 |         "position",
+57 |         "position",
+58 |         "position",
+59 |         "position",
+60 |         "position",
+61 |         "position",
+62 |         "position",
+63 |         "position",
+64 |         "position",
+65 |         "position",
+66 |         "position",
+67 |       ]
+68 | 
+69 |     max_body_angle: 1.5
+70 | 
+71 |     model_path: "$(find-pkg-share neural_controller)/launch/policy_latest.json"
+72 | 
+73 | joint_state_broadcaster:
+74 |   ros__parameters:
+75 |     update_rate: 250
+76 |     use_local_topics: false
+77 | 
+
+
+--------------------------------------------------------------------------------
+/run.sh:
+--------------------------------------------------------------------------------
+1 | source ~/.bashrc
+2 | ros2 launch lab_7.launch.py &
+3 | ros2 launch foxglove_bridge foxglove_bridge_launch.xml &
+4 | python hailo_detection.py
+5 | 
+
+
+--------------------------------------------------------------------------------
+/utils.py:
+--------------------------------------------------------------------------------
+  1 | """
+  2 | Taken from Hailo Application Code Examples
+  3 | https://github.com/hailo-ai/Hailo-Application-Code-Examples/blob/main/runtime/python/utils.py
+  4 | """
+  5 | 
+  6 | from typing import List, Generator, Optional, Tuple, Dict
+  7 | from pathlib import Path
+  8 | from functools import partial
+  9 | import queue
+ 10 | from loguru import logger
+ 11 | import numpy as np
+ 12 | from PIL import Image
+ 13 | from hailo_platform import (HEF, VDevice,
+ 14 |                             FormatType, HailoSchedulingAlgorithm)
+ 15 | IMAGE_EXTENSIONS: Tuple[str, ...] = ('.jpg', '.png', '.bmp', '.jpeg')
+ 16 | 
+ 17 | 
+ 18 | class HailoAsyncInference:
+ 19 |     def __init__(
+ 20 |         self, hef_path: str, input_queue: queue.Queue,
+ 21 |         output_queue: queue.Queue, batch_size: int = 1,
+ 22 |         input_type: Optional[str] = None, output_type: Optional[Dict[str, str]] = None,
+ 23 |         send_original_frame: bool = False) -> None:
+ 24 |         """
+ 25 |         Initialize the HailoAsyncInference class with the provided HEF model
+ 26 |         file path and input/output queues.
+ 27 | 
+ 28 |         Args:
+ 29 |             hef_path (str): Path to the HEF model file.
+ 30 |             input_queue (queue.Queue): Queue from which to pull input frames
+ 31 |                                        for inference.
+ 32 |             output_queue (queue.Queue): Queue to hold the inference results.
+ 33 |             batch_size (int): Batch size for inference. Defaults to 1.
+ 34 |             input_type (Optional[str]): Format type of the input stream.
+ 35 |                                         Possible values: 'UINT8', 'UINT16'.
+ 36 |             output_type Optional[dict[str, str]] : Format type of the output stream.
+ 37 |                                          Possible values: 'UINT8', 'UINT16', 'FLOAT32'.
+ 38 |         """
+ 39 |         self.input_queue = input_queue
+ 40 |         self.output_queue = output_queue
+ 41 |         params = VDevice.create_params()
+ 42 |         # Set the scheduling algorithm to round-robin to activate the scheduler
+ 43 |         params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
+ 44 | 
+ 45 |         self.hef = HEF(hef_path)
+ 46 |         self.target = VDevice(params)
+ 47 |         self.infer_model = self.target.create_infer_model(hef_path)
+ 48 |         self.infer_model.set_batch_size(batch_size)
+ 49 |         if input_type is not None:
+ 50 |             self._set_input_type(input_type)
+ 51 |         if output_type is not None:
+ 52 |             self._set_output_type(output_type)
+ 53 | 
+ 54 |         self.output_type = output_type
+ 55 |         self.send_original_frame = send_original_frame
+ 56 | 
+ 57 |     def _set_input_type(self, input_type: Optional[str] = None) -> None:
+ 58 |         """
+ 59 |         Set the input type for the HEF model. If the model has multiple inputs,
+ 60 |         it will set the same type of all of them.
+ 61 | 
+ 62 |         Args:
+ 63 |             input_type (Optional[str]): Format type of the input stream.
+ 64 |         """
+ 65 |         self.infer_model.input().set_format_type(getattr(FormatType, input_type))
+ 66 | 
+ 67 |     def _set_output_type(self, output_type_dict: Optional[Dict[str, str]] = None) -> None:
+ 68 |         """
+ 69 |         Set the output type for the HEF model. If the model has multiple outputs,
+ 70 |         it will set the same type for all of them.
+ 71 | 
+ 72 |         Args:
+ 73 |             output_type_dict (Optional[dict[str, str]]): Format type of the output stream.
+ 74 |         """
+ 75 |         for output_name, output_type in output_type_dict.items():
+ 76 |             self.infer_model.output(output_name).set_format_type(
+ 77 |                 getattr(FormatType, output_type)
+ 78 |             )
+ 79 | 
+ 80 |     def callback(
+ 81 |         self, completion_info, bindings_list: list, input_batch: list,
+ 82 |     ) -> None:
+ 83 |         """
+ 84 |         Callback function for handling inference results.
+ 85 | 
+ 86 |         Args:
+ 87 |             completion_info: Information about the completion of the
+ 88 |                              inference task.
+ 89 |             bindings_list (list): List of binding objects containing input
+ 90 |                                   and output buffers.
+ 91 |             processed_batch (list): The processed batch of images.
+ 92 |         """
+ 93 |         if completion_info.exception:
+ 94 |             logger.error(f'Inference error: {completion_info.exception}')
+ 95 |         else:
+ 96 |             for i, bindings in enumerate(bindings_list):
+ 97 |                 # If the model has a single output, return the output buffer.
+ 98 |                 # Else, return a dictionary of output buffers, where the keys are the output names.
+ 99 |                 if len(bindings._output_names) == 1:
+100 |                     result = bindings.output().get_buffer()
+101 |                 else:
+102 |                     result = {
+103 |                         name: np.expand_dims(
+104 |                             bindings.output(name).get_buffer(), axis=0
+105 |                         )
+106 |                         for name in bindings._output_names
+107 |                     }
+108 |                 self.output_queue.put((input_batch[i], result))
+109 | 
+110 |     def get_vstream_info(self) -> Tuple[list, list]:
+111 | 
+112 |         """
+113 |         Get information about input and output stream layers.
+114 | 
+115 |         Returns:
+116 |             Tuple[list, list]: List of input stream layer information, List of
+117 |                                output stream layer information.
+118 |         """
+119 |         return (
+120 |             self.hef.get_input_vstream_infos(),
+121 |             self.hef.get_output_vstream_infos()
+122 |         )
+123 | 
+124 |     def get_hef(self) -> HEF:
+125 |         """
+126 |         Get the object's HEF file
+127 | 
+128 |         Returns:
+129 |             HEF: A HEF (Hailo Executable File) containing the model.
+130 |         """
+131 |         return self.hef
+132 | 
+133 |     def get_input_shape(self) -> Tuple[int, ...]:
+134 |         """
+135 |         Get the shape of the model's input layer.
+136 | 
+137 |         Returns:
+138 |             Tuple[int, ...]: Shape of the model's input layer.
+139 |         """
+140 |         return self.hef.get_input_vstream_infos()[0].shape  # Assumes one input
+141 | 
+142 |     def run(self) -> None:
+143 |         with self.infer_model.configure() as configured_infer_model:
+144 |             while True:
+145 |                 batch_data = self.input_queue.get()
+146 |                 if batch_data is None:
+147 |                     break  # Sentinel value to stop the inference loop
+148 | 
+149 |                 if self.send_original_frame:
+150 |                     original_batch, preprocessed_batch = batch_data
+151 |                 else:
+152 |                     preprocessed_batch = batch_data
+153 | 
+154 |                 bindings_list = []
+155 |                 for frame in preprocessed_batch:
+156 |                     bindings = self._create_bindings(configured_infer_model)
+157 |                     bindings.input().set_buffer(np.array(frame))
+158 |                     bindings_list.append(bindings)
+159 | 
+160 |                 configured_infer_model.wait_for_async_ready(timeout_ms=10000)
+161 |                 job = configured_infer_model.run_async(
+162 |                     bindings_list, partial(
+163 |                         self.callback,
+164 |                         input_batch=original_batch if self.send_original_frame else preprocessed_batch,
+165 |                         bindings_list=bindings_list
+166 |                     )
+167 |                 )
+168 |             job.wait(10000)  # Wait for the last job
+169 | 
+170 |     def _get_output_type_str(self, output_info) -> str:
+171 |         if self.output_type is None:
+172 |             return str(output_info.format.type).split(".")[1].lower()
+173 |         else:
+174 |             self.output_type[output_info.name].lower()
+175 | 
+176 |     def _create_bindings(self, configured_infer_model) -> object:
+177 |         """
+178 |         Create bindings for input and output buffers.
+179 | 
+180 |         Args:
+181 |             configured_infer_model: The configured inference model.
+182 | 
+183 |         Returns:
+184 |             object: Bindings object with input and output buffers.
+185 |         """
+186 |         if self.output_type is None:
+187 |             output_buffers = {
+188 |                 output_info.name: np.empty(
+189 |                     self.infer_model.output(output_info.name).shape,
+190 |                     dtype=(getattr(np, self._get_output_type_str(output_info)))
+191 |                 )
+192 |             for output_info in self.hef.get_output_vstream_infos()
+193 |             }
+194 |         else:
+195 |             output_buffers = {
+196 |                 name: np.empty(
+197 |                     self.infer_model.output(name).shape,
+198 |                     dtype=(getattr(np, self.output_type[name].lower()))
+199 |                 )
+200 |             for name in self.output_type
+201 |             }
+202 |         return configured_infer_model.create_bindings(
+203 |             output_buffers=output_buffers
+204 |         )
+205 | 
+206 | 
+207 | def load_input_images(images_path: str) -> List[Image.Image]:
+208 |     """
+209 |     Load images from the specified path.
+210 | 
+211 |     Args:
+212 |         images_path (str): Path to the input image or directory of images.
+213 | 
+214 |     Returns:
+215 |         List[Image.Image]: List of PIL.Image.Image objects.
+216 |     """
+217 |     path = Path(images_path)
+218 |     if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
+219 |         return [Image.open(path)]
+220 |     elif path.is_dir():
+221 |         return [
+222 |             Image.open(img) for img in path.glob("*")
+223 |             if img.suffix.lower() in IMAGE_EXTENSIONS
+224 |         ]
+225 |     return []
+226 | 
+227 | 
+228 | def validate_images(images: List[Image.Image], batch_size: int) -> None:
+229 |     """
+230 |     Validate that images exist and are properly divisible by the batch size.
+231 | 
+232 |     Args:
+233 |         images (List[Image.Image]): List of images.
+234 |         batch_size (int): Number of images per batch.
+235 | 
+236 |     Raises:
+237 |         ValueError: If images list is empty or not divisible by batch size.
+238 |     """
+239 |     if not images:
+240 |         raise ValueError(
+241 |             'No valid images found in the specified path.'
+242 |         )
+243 | 
+244 |     if len(images) % batch_size != 0:
+245 |         raise ValueError(
+246 |             'The number of input images should be divisible by the batch size '
+247 |             'without any remainder.'
+248 |         )
+249 | 
+250 | 
+251 | def divide_list_to_batches(
+252 |     images_list: List[Image.Image], batch_size: int
+253 | ) -> Generator[List[Image.Image], None, None]:
+254 |     """
+255 |     Divide the list of images into batches.
+256 | 
+257 |     Args:
+258 |         images_list (List[Image.Image]): List of images.
+259 |         batch_size (int): Number of images in each batch.
+260 | 
+261 |     Returns:
+262 |         Generator[List[Image.Image], None, None]: Generator yielding batches
+263 |                                                   of images.
+264 |     """
+265 |     for i in range(0, len(images_list), batch_size):
+266 |         yield images_list[i: i + batch_size]
+267 | 
+
+
+--------------------------------------------------------------------------------
+/yolov5m_wo_spp_60p.hef:
+--------------------------------------------------------------------------------
+https://raw.githubusercontent.com/cs123-stanford/lab_7_2024/7f84dbdb882c477ecbe04a76b122b19a6ef7dc8f/yolov5m_wo_spp_60p.hef
+
+
+--------------------------------------------------------------------------------
